@@ -50,7 +50,7 @@ class SettingsWidget(QWidget):
         backup_btn = QPushButton("Backup Identity (copy identity.key)")
         backup_btn.clicked.connect(self._backup_identity)
         
-        id_layout.addWidget(QLabel("Your permanent mesh identity is stored in:")
+        id_layout.addWidget(QLabel("Your permanent mesh identity is stored in:"))
         id_layout.addWidget(QLabel(str(self.backend.app_config_dir / "identity.key")))
         id_layout.addWidget(backup_btn)
         id_group.setLayout(id_layout)
