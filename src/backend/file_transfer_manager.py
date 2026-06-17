@@ -1,4 +1,4 @@
-"""File transfer manager - simplified and more robust version."""
+"""File transfer manager - simulated but saves file on self-send."""
 
 import hashlib
 from pathlib import Path
@@ -7,7 +7,7 @@ import RNS
 
 
 class FileTransferManager:
-    """File transfer manager (work in progress for full RNS.Resource support)."""
+    """File transfer manager (simulated progress + self-send file creation)."""
     
     def __init__(self, identity: RNS.Identity, downloads_dir: Optional[Path] = None, rns_node=None):
         self.identity = identity
@@ -26,7 +26,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file. Currently uses a simplified approach for compatibility."""
+        """Send file. On self-send, actually copies the file to downloads folder."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -34,55 +34,42 @@ class FileTransferManager:
         transfer_id = None
         try:
             dest_hash_bytes = bytes.fromhex(destination_hash)
-            
-            # Try to recall the remote identity if we know it
-            remote_identity = RNS.Identity.recall(dest_hash_bytes)
-            
-            if remote_identity:
-                destination = RNS.Destination(
-                    remote_identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "reticulum-meshv",
-                    "filetransfer"
-                )
-            else:
-                # Fallback for self-send or when identity is not yet known
-                destination = RNS.Destination(
-                    self.identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "reticulum-meshv",
-                    "filetransfer"
-                )
-                destination.hash = dest_hash_bytes
-            
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-            
+            my_hash = self.identity.hash
+
             transfer_id = hashlib.md5(f"{file_path.name}{destination_hash}".encode()).hexdigest()
             self.transfers[transfer_id] = {
                 'file': str(file_path),
-                'size': len(file_data),
+                'size': file_path.stat().st_size,
                 'progress': 0,
                 'status': 'sending'
             }
             
-            # For now, we simulate progress while we stabilize the real RNS.Resource path
-            # Real RNS.Resource sending will be enabled once API compatibility is solid
-            total = len(file_data)
-            for i in range(0, 101, 10):
+            total_size = file_path.stat().st_size
+
+            # Simulate progress
+            for pct in range(0, 101, 5):
                 if on_progress:
-                    on_progress(i, int(total * i / 100), total)
+                    current = int(total_size * pct / 100)
+                    on_progress(pct, current, total_size)
                 import time
-                time.sleep(0.05)
-            
+                time.sleep(0.03)
+
+            # If sending to self, actually save a copy
+            if dest_hash_bytes == my_hash:
+                dest_filename = f"self_{file_path.name}"
+                dest_path = self.downloads_dir / dest_filename
+                import shutil
+                shutil.copy2(file_path, dest_path)
+                RNS.log(f"Self-send: File copied to {dest_path}")
+            else:
+                RNS.log("Note: Real remote sending not yet active (simulated)")
+
             self.transfers[transfer_id]['status'] = 'completed'
             if on_progress:
-                on_progress(100, total, total)
-            
+                on_progress(100, total_size, total_size)
+
             return True
-            
+
         except Exception as e:
             if transfer_id and transfer_id in self.transfers:
                 self.transfers[transfer_id]['status'] = 'failed'
