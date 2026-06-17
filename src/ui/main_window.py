@@ -2,12 +2,13 @@
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QStatusBar
+    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QStatusBar, QPushButton
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from src.config.theme import get_stylesheet
 from src.ui.widgets.file_manager_widget import FileManagerWidget
+
 
 class MainWindow(QMainWindow):
     """Main application window."""
@@ -15,7 +16,7 @@ class MainWindow(QMainWindow):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.setWindowTitle("Reticulum Mesh")
+        self.setWindowTitle("Reticulum Mesh – Easy Mesh File Sharing")
         self.setGeometry(100, 100, 1200, 820)
         self.setStyleSheet(get_stylesheet())
         
@@ -49,11 +50,34 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(self.stack, 1)
         
-        # Status bar
-        status_text = f"Identity: {backend.rns_node.get_identity_hash()[:12]}... | Status: Ready"
-        self.statusBar().addWidget(QLabel(status_text))
+        # Status bar with identity
+        status_widget = QWidget()
+        status_layout = QHBoxLayout(status_widget)
+        status_layout.setContentsMargins(8, 2, 8, 2)
+        
+        identity_text = backend.rns_node.get_short_identity_hash()
+        self.identity_status = QLabel(f"Identity: {identity_text}")
+        self.identity_status.setStyleSheet("font-family: monospace;")
+        
+        copy_status_btn = QPushButton("📋")
+        copy_status_btn.setMaximumWidth(28)
+        copy_status_btn.setToolTip("Copy your identity hash")
+        copy_status_btn.clicked.connect(self._copy_identity_from_status)
+        
+        status_layout.addWidget(self.identity_status)
+        status_layout.addWidget(copy_status_btn)
+        status_layout.addStretch()
+        
+        self.statusBar().addWidget(status_widget, 1)
         
         self.show()
+    
+    def _copy_identity_from_status(self):
+        """Copy identity from status bar."""
+        from PyQt6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.backend.rns_node.get_identity_hash())
+        self.statusBar().showMessage("Identity hash copied to clipboard!", 3000)
     
     def _on_nav(self, item):
         """Handle navigation."""
