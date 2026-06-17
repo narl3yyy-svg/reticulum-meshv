@@ -26,7 +26,8 @@ class Application:
         )
         self.file_transfer_manager = FileTransferManager(
             self.rns_node.get_identity(),
-            downloads_dir=self.downloads_dir
+            downloads_dir=self.downloads_dir,
+            rns_node=self.rns_node
         )
     
     def run(self):
