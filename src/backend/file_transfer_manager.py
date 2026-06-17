@@ -54,13 +54,12 @@ class FileTransferManager:
                 import time
                 time.sleep(0.03)
 
-            # If sending to self, actually save a copy
+            # If sending to self, save with original filename
             if dest_hash_bytes == my_hash:
-                dest_filename = f"self_{file_path.name}"
-                dest_path = self.downloads_dir / dest_filename
+                dest_path = self.downloads_dir / file_path.name
                 import shutil
                 shutil.copy2(file_path, dest_path)
-                RNS.log(f"Self-send: File copied to {dest_path}")
+                RNS.log(f"Self-send: File saved to {dest_path}")
             else:
                 RNS.log("Note: Real remote sending not yet active (simulated)")
 
