@@ -84,9 +84,9 @@ class FileManagerWidget(QWidget):
         identity_group.setLayout(identity_layout)
         layout.addWidget(identity_group)
         
-        # Helpful tip
-        tip = QLabel("💡 Tip: Give the hash above to people who want to send files to you. "
-                     "They paste it into 'Destination Hash'. You can also use the full 64-char hash.")
+        # Helpful tip - FIXED: be explicit about using the Copy button for the full hash
+        tip = QLabel("💡 Tip: Click the 'Copy Hash' button above to copy your **full 64-character identity hash**. "
+                     "Give that to others so they can send files to you. Paste the recipient's full hash into the field below.")
         tip.setWordWrap(True)
         tip.setStyleSheet("color: #888; font-size: 12px;")
         layout.addWidget(tip)
@@ -116,7 +116,7 @@ class FileManagerWidget(QWidget):
         dest_layout = QHBoxLayout()
         dest_label = QLabel("Destination Hash:")
         self.dest_input = QLineEdit()
-        self.dest_input.setPlaceholderText("Paste recipient's identity or destination hash here (64 hex chars)")
+        self.dest_input.setPlaceholderText("Paste the recipient's FULL 64-character identity hash here")
         dest_layout.addWidget(dest_label, 0)
         dest_layout.addWidget(self.dest_input, 1)
         layout.addLayout(dest_layout)
@@ -150,11 +150,11 @@ class FileManagerWidget(QWidget):
         layout.addStretch()
     
     def _copy_identity(self):
-        """Copy short or full identity hash to clipboard."""
+        """Copy the FULL identity hash to clipboard (use this for sharing)."""
         clipboard = QApplication.clipboard()
         hash_to_copy = self.rns_node.get_identity_hash()
         clipboard.setText(hash_to_copy)
-        QMessageBox.information(self, "Copied", "Identity hash copied to clipboard!\n\nShare it with others so they can send you files.")
+        QMessageBox.information(self, "Copied", "Full 64-character identity hash copied to clipboard!\n\nShare it with others so they can send you files.")
     
     def _show_full_identity(self):
         """Show the complete 64-character identity hash."""
@@ -184,12 +184,13 @@ class FileManagerWidget(QWidget):
             QMessageBox.warning(self, "Error", "Please enter the recipient's Destination Hash.")
             return
         
-        # Basic validation
+        # Strict validation: only accept full 64-char hex hashes.
+        # Short/abbreviated hashes (with ...) are for display only.
         if len(destination) != 64 or not all(c in "0123456789abcdef" for c in destination):
             QMessageBox.warning(
                 self, "Invalid Hash", 
                 "Destination hash must be exactly 64 hexadecimal characters (0-9, a-f).\n\n"
-                "You can use either the short or full hash from the recipient."
+                "Please use the 'Copy Hash' button on the recipient's side to get the full hash, then paste it here."
             )
             return
         
