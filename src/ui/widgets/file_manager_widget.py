@@ -60,7 +60,7 @@ class FileManagerWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
         
-        # === My Identity Section (makes it easy to share) ===
+        # === My Identity Section ===
         identity_group = QGroupBox("Your Identity (share this hash so others can send you files)")
         identity_group.setStyleSheet("QGroupBox { font-weight: bold; } ")
         identity_layout = QHBoxLayout()
@@ -84,22 +84,18 @@ class FileManagerWidget(QWidget):
         identity_group.setLayout(identity_layout)
         layout.addWidget(identity_group)
         
-        # Helpful tip - FIXED: be explicit about using the Copy button for the full hash
-        tip = QLabel("💡 Tip: Click the 'Copy Hash' button above to copy your **full 64-character identity hash**. "
-                     "Give that to others so they can send files to you. Paste the recipient's full hash into the field below.")
+        tip = QLabel("💡 <b>Tip:</b> Click <b>'Copy Hash'</b> or <b>'Show Full Hash'</b> to get your <b>complete 64-character</b> identity hash. Paste the recipient's full 64-char hash below. Short versions with '...' are rejected.")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #888; font-size: 12px;")
+        tip.setStyleSheet("color: #aaa; font-size: 12px;")
         layout.addWidget(tip)
         
-        # Title
         title = QLabel("Large File Transfers")
         title.setStyleSheet("font-size: 20px; font-weight: bold; margin-top: 12px;")
         layout.addWidget(title)
         
-        subtitle = QLabel("Chunked transfers over Reticulum mesh (real implementation coming soon - currently demo mode)")
+        subtitle = QLabel("Real Reticulum Resource transfers (unlimited size) - implementing now")
         layout.addWidget(subtitle)
         
-        # File selection
         file_layout = QHBoxLayout()
         self.file_path_input = QLineEdit()
         self.file_path_input.setPlaceholderText("Select a file to send...")
@@ -112,37 +108,32 @@ class FileManagerWidget(QWidget):
         file_layout.addWidget(browse_btn)
         layout.addLayout(file_layout)
         
-        # Destination
         dest_layout = QHBoxLayout()
         dest_label = QLabel("Destination Hash:")
         self.dest_input = QLineEdit()
-        self.dest_input.setPlaceholderText("Paste the recipient's FULL 64-character identity hash here")
+        self.dest_input.setPlaceholderText("Paste the FULL 64-character recipient identity hash here")
         dest_layout.addWidget(dest_label, 0)
         dest_layout.addWidget(self.dest_input, 1)
         layout.addLayout(dest_layout)
         
-        # Progress
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setMinimumHeight(20)
         layout.addWidget(self.progress_bar)
         
-        # Status
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
         
-        # Send button
         send_btn = QPushButton("📤 Send File over Mesh")
         send_btn.setMinimumHeight(44)
         send_btn.setStyleSheet("font-size: 15px; font-weight: bold;")
         send_btn.clicked.connect(self._send_file)
         layout.addWidget(send_btn)
         
-        # Recent transfers table
         layout.addWidget(QLabel("Transfer History"))
         self.transfers_table = QTableWidget()
         self.transfers_table.setColumnCount(4)
-        self.transfers_table.setHorizontalHeaderLabels(["File", "Destination", "Progress", "Status"])
+        self.transfers_table.setHorizontalHeaderLabels(["File", "To", "Progress", "Status"])
         self.transfers_table.setMaximumHeight(180)
         self.transfers_table.setAlternatingRowColors(True)
         layout.addWidget(self.transfers_table)
@@ -150,29 +141,21 @@ class FileManagerWidget(QWidget):
         layout.addStretch()
     
     def _copy_identity(self):
-        """Copy the FULL identity hash to clipboard (use this for sharing)."""
         clipboard = QApplication.clipboard()
         hash_to_copy = self.rns_node.get_identity_hash()
         clipboard.setText(hash_to_copy)
-        QMessageBox.information(self, "Copied", "Full 64-character identity hash copied to clipboard!\n\nShare it with others so they can send you files.")
+        QMessageBox.information(self, "Copied", "Full 64-character hash copied to clipboard!")
     
     def _show_full_identity(self):
-        """Show the complete 64-character identity hash."""
         full = self.rns_node.get_identity_hash()
-        QMessageBox.information(
-            self, 
-            "Your Full Identity Hash", 
-            f"{full}\n\nLength: {len(full)} characters\n\nThis is your permanent address on the Reticulum mesh."
-        )
+        QMessageBox.information(self, "Your Full 64-char Identity Hash", full)
     
     def _browse_file(self):
-        """Browse for file."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Select file to send")
         if file_path:
             self.file_path_input.setText(file_path)
     
     def _send_file(self):
-        """Send selected file."""
         file_path = self.file_path_input.text().strip()
         destination = self.dest_input.text().strip().lower()
         
@@ -184,66 +167,44 @@ class FileManagerWidget(QWidget):
             QMessageBox.warning(self, "Error", "Please enter the recipient's Destination Hash.")
             return
         
-        # Strict validation: only accept full 64-char hex hashes.
-        # Short/abbreviated hashes (with ...) are for display only.
         if len(destination) != 64 or not all(c in "0123456789abcdef" for c in destination):
-            QMessageBox.warning(
-                self, "Invalid Hash", 
-                "Destination hash must be exactly 64 hexadecimal characters (0-9, a-f).\n\n"
-                "Please use the 'Copy Hash' button on the recipient's side to get the full hash, then paste it here."
-            )
+            QMessageBox.warning(self, "Invalid Hash", "Must be exactly 64 hex characters.\n\nUse 'Show Full Hash' or 'Copy Hash' button on the recipient to get the full string.")
             return
         
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("Transfer starting...")
         
-        # Add to history table
         row = self.transfers_table.rowCount()
         self.transfers_table.insertRow(row)
         self.transfers_table.setItem(row, 0, QTableWidgetItem(Path(file_path).name))
-        self.transfers_table.setItem(row, 1, QTableWidgetItem(destination[:16] + "..."))
+        self.transfers_table.setItem(row, 1, QTableWidgetItem(destination[:12] + "..."))
         self.transfers_table.setItem(row, 2, QTableWidgetItem("0%"))
         self.transfers_table.setItem(row, 3, QTableWidgetItem("Sending..."))
         
-        self.transfer_thread = FileTransferThread(
-            self.file_transfer_manager,
-            file_path,
-            destination
-        )
-        self.transfer_thread.progress_updated.connect(
-            lambda cur, tot, pct: self._on_progress(cur, tot, pct, row)
-        )
-        self.transfer_thread.transfer_complete.connect(
-            lambda fp: self._on_complete(fp, row)
-        )
-        self.transfer_thread.transfer_failed.connect(
-            lambda err, fp: self._on_failed(err, fp, row)
-        )
+        self.transfer_thread = FileTransferThread(self.file_transfer_manager, file_path, destination)
+        self.transfer_thread.progress_updated.connect(lambda cur, tot, pct: self._on_progress(cur, tot, pct, row))
+        self.transfer_thread.transfer_complete.connect(lambda fp: self._on_complete(fp, row))
+        self.transfer_thread.transfer_failed.connect(lambda err, fp: self._on_failed(err, fp, row))
         self.transfer_thread.start()
     
     def _on_progress(self, current, total, percentage, row):
-        """Update progress bar and table."""
         self.progress_bar.setValue(percentage)
         mb_current = current / (1024 * 1024)
         mb_total = total / (1024 * 1024)
         self.status_label.setText(f"Transferring: {mb_current:.1f} MB / {mb_total:.1f} MB ({percentage}%)")
-        
-        # Update table
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 2, QTableWidgetItem(f"{percentage}%"))
     
     def _on_complete(self, file_path, row):
-        """Handle completion."""
-        self.status_label.setText("✓ Transfer complete!")
+        self.status_label.setText("✓ Done!")
         self.progress_bar.setValue(100)
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
-        QMessageBox.information(self, "Success", f"File '{Path(file_path).name}' transferred successfully!")
+        QMessageBox.information(self, "Success", f"File sent: {Path(file_path).name}")
     
     def _on_failed(self, error, file_path, row):
-        """Handle failure."""
-        self.status_label.setText(f"✗ Transfer failed: {error}")
+        self.status_label.setText(f"✗ Failed")
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Failed"))
-        QMessageBox.critical(self, "Transfer Failed", f"Error sending {Path(file_path).name}:\n{error}")
+        QMessageBox.critical(self, "Error", str(error))
