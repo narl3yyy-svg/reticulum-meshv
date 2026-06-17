@@ -2,12 +2,14 @@
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QStatusBar, QPushButton
+    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QPushButton
 )
 from PyQt6.QtCore import Qt
 from src.config.theme import get_stylesheet
 from src.ui.widgets.file_manager_widget import FileManagerWidget
 from src.ui.widgets.settings_widget import SettingsWidget
+from src.ui.widgets.messages_widget import MessagesWidget
+from src.ui.widgets.contacts_widget import ContactsWidget
 
 
 class MainWindow(QMainWindow):
@@ -39,12 +41,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.sidebar, 0)
         
         self.stack = QStackedWidget()
+        self.messages_widget = MessagesWidget(backend)
         self.file_widget = FileManagerWidget(backend)
+        self.contacts_widget = ContactsWidget(backend)
         self.settings_widget = SettingsWidget(backend)
-        self.stack.addWidget(QWidget())           # Messages
-        self.stack.addWidget(self.file_widget)    # Files
-        self.stack.addWidget(QWidget())           # Contacts
-        self.stack.addWidget(self.settings_widget)  # Settings
+        
+        self.stack.addWidget(self.messages_widget)
+        self.stack.addWidget(self.file_widget)
+        self.stack.addWidget(self.contacts_widget)
+        self.stack.addWidget(self.settings_widget)
         
         layout.addWidget(self.stack, 1)
         
@@ -74,7 +79,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText(self.backend.rns_node.get_identity_hash())
-        self.statusBar().showMessage("Full identity hash copied!", 3000)
+        self.statusBar().showMessage("Identity hash copied!", 3000)
     
     def _on_nav(self, item):
         index = item.data(Qt.ItemDataRole.UserRole)
