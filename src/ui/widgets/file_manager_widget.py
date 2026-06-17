@@ -55,12 +55,11 @@ class FileManagerWidget(QWidget):
         self.init_ui()
     
     def init_ui(self):
-        """Initialize UI."""
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
         
-        # === My Identity Section ===
+        # My Identity Section
         identity_group = QGroupBox("Your Identity (share this hash so others can send you files)")
         identity_group.setStyleSheet("QGroupBox { font-weight: bold; } ")
         identity_layout = QHBoxLayout()
@@ -84,7 +83,7 @@ class FileManagerWidget(QWidget):
         identity_group.setLayout(identity_layout)
         layout.addWidget(identity_group)
         
-        tip = QLabel("💡 <b>Tip:</b> Click <b>'Copy Hash'</b> or <b>'Show Full Hash'</b> to get your <b>complete 64-character</b> identity hash. Paste the recipient's full 64-char hash below. Short versions with '...' are rejected.")
+        tip = QLabel("💡 Click <b>Copy Hash</b> or <b>Show Full Hash</b> to get your identity. Paste the recipient's full hash below.")
         tip.setWordWrap(True)
         tip.setStyleSheet("color: #aaa; font-size: 12px;")
         layout.addWidget(tip)
@@ -93,7 +92,7 @@ class FileManagerWidget(QWidget):
         title.setStyleSheet("font-size: 20px; font-weight: bold; margin-top: 12px;")
         layout.addWidget(title)
         
-        subtitle = QLabel("Real Reticulum Resource transfers (unlimited size) - implementing now")
+        subtitle = QLabel("Real Reticulum Resource transfers (unlimited size) - work in progress")
         layout.addWidget(subtitle)
         
         file_layout = QHBoxLayout()
@@ -111,7 +110,7 @@ class FileManagerWidget(QWidget):
         dest_layout = QHBoxLayout()
         dest_label = QLabel("Destination Hash:")
         self.dest_input = QLineEdit()
-        self.dest_input.setPlaceholderText("Paste the FULL 64-character recipient identity hash here")
+        self.dest_input.setPlaceholderText("Paste the recipient's full identity hash here")
         dest_layout.addWidget(dest_label, 0)
         dest_layout.addWidget(self.dest_input, 1)
         layout.addLayout(dest_layout)
@@ -144,11 +143,17 @@ class FileManagerWidget(QWidget):
         clipboard = QApplication.clipboard()
         hash_to_copy = self.rns_node.get_identity_hash()
         clipboard.setText(hash_to_copy)
-        QMessageBox.information(self, "Copied", "Full 64-character hash copied to clipboard!")
+        expected = self.rns_node.hash_length
+        QMessageBox.information(self, "Copied", f"Identity hash copied ({expected} characters)")
     
     def _show_full_identity(self):
         full = self.rns_node.get_identity_hash()
-        QMessageBox.information(self, "Your Full 64-char Identity Hash", full)
+        expected = self.rns_node.hash_length
+        QMessageBox.information(
+            self, 
+            f"Your Identity Hash ({expected} chars)", 
+            f"{full}\n\nLength: {expected} characters"
+        )
     
     def _browse_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select file to send")
@@ -167,8 +172,13 @@ class FileManagerWidget(QWidget):
             QMessageBox.warning(self, "Error", "Please enter the recipient's Destination Hash.")
             return
         
-        if len(destination) != 64 or not all(c in "0123456789abcdef" for c in destination):
-            QMessageBox.warning(self, "Invalid Hash", "Must be exactly 64 hex characters.\n\nUse 'Show Full Hash' or 'Copy Hash' button on the recipient to get the full string.")
+        expected_len = self.rns_node.hash_length
+        if len(destination) != expected_len or not all(c in "0123456789abcdef" for c in destination):
+            QMessageBox.warning(
+                self, "Invalid Hash", 
+                f"Destination hash must be exactly {expected_len} hexadecimal characters.\n\n"
+                "Use the Copy/Show Full Hash button on the recipient."
+            )
             return
         
         self.progress_bar.setVisible(True)
