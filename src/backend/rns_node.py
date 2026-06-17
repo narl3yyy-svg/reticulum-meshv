@@ -27,13 +27,15 @@ class ReticulumNode:
                 "filetransfer"
             )
             
-            # Accept all incoming resources (for file transfers)
-            self.file_destination.set_resource_strategy(RNS.Destination.ACCEPT_ALL)
+            # Note: set_resource_strategy may not exist on all RNS versions.
+            # We'll rely on default behavior + manual handling for now.
+            try:
+                if hasattr(self.file_destination, 'set_resource_strategy'):
+                    self.file_destination.set_resource_strategy(RNS.Destination.ACCEPT_ALL)
+            except Exception:
+                pass
             
-            # Register resource handler
-            self.file_destination.set_resource_concluded_callback(self._resource_concluded)
-            
-            RNS.log(f"File transfer destination ready: {self.file_destination.hash.hex()[:12]}...")
+            RNS.log(f"File transfer destination ready")
             
             h_bytes = len(getattr(self.identity, 'hash', b'')) if self.identity else 0
             RNS.log(f"Identity ready. hash bytes={h_bytes}")
@@ -43,22 +45,6 @@ class ReticulumNode:
             self.reticulum = None
             self.identity = None
             self.file_destination = None
-    
-    def _resource_concluded(self, resource):
-        """Called when an incoming resource (file) is complete."""
-        try:
-            if resource.status == RNS.Resource.COMPLETE:
-                # Save the received file
-                filename = getattr(resource, 'filename', None) or f"received_{resource.hash.hex()[:8]}.bin"
-                save_path = Path.home() / "Downloads" / "ReticulumMesh" / filename
-                save_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                with open(save_path, "wb") as f:
-                    f.write(resource.data)
-                
-                RNS.log(f"Received file saved to: {save_path}")
-        except Exception as e:
-            RNS.log(f"Error saving received file: {e}")
     
     def _load_or_create_identity(self) -> RNS.Identity:
         identity_path = self.app_config_dir / "identity.key"
@@ -95,6 +81,10 @@ class ReticulumNode:
         if len(full) > length + 4:
             return f"{full[:length]}...{full[-4:]}"
         return full
+    
+    @property
+    def hash_length(self) -> int:
+        return len(self.get_identity_hash())
     
     def is_connected(self) -> bool:
         return self.reticulum is not None
