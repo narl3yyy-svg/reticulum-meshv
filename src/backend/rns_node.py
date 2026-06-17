@@ -18,8 +18,9 @@ class ReticulumNode:
             self.reticulum = RNS.Reticulum(configdir=str(self.rns_config_dir))
             self.identity = self._load_or_create_identity()
             
-            hlen = len(self.identity.hash) if self.identity and self.identity.hash else 0
-            RNS.log(f"Identity created. hash bytes length = {hlen}, hex length = {len(self.get_identity_hash())}")
+            h_bytes = len(getattr(self.identity, 'hash', b'')) if self.identity else 0
+            h_hex = len(self.get_identity_hash())
+            RNS.log(f"Identity ready. hash bytes={h_bytes}, hex chars={h_hex}")
             
             RNS.log(f"Reticulum Mesh node ready. Identity: {self.get_short_identity_hash()}")
         except Exception as e:
@@ -33,14 +34,10 @@ class ReticulumNode:
         if identity_path.exists():
             try:
                 identity = RNS.Identity.from_file(str(identity_path))
-                if identity and len(getattr(identity, 'hash', b'')) == 32:
-                    RNS.log(f"Loaded existing identity from {identity_path}")
+                if identity and getattr(identity, 'hash', None):
                     return identity
-                else:
-                    RNS.log("Loaded identity invalid or wrong hash length, recreating...")
             except Exception as e:
-                RNS.log(f"Failed to load identity: {e}")
-            
+                RNS.log(f"Failed to load identity file: {e}")
             try:
                 identity_path.unlink(missing_ok=True)
             except:
@@ -56,16 +53,13 @@ class ReticulumNode:
             return ""
         try:
             return self.identity.hash.hex()
-        except:
+        except Exception:
             return ""
     
     def get_short_identity_hash(self, length: int = 16) -> str:
         full = self.get_identity_hash()
         if not full:
             return "N/A"
-        # If we only got 32 chars, still show something usable
-        if len(full) == 32:
-            return f"{full[:16]}...{full[-4:]}"
         if len(full) > length + 4:
             return f"{full[:length]}...{full[-4:]}"
         return full
@@ -75,3 +69,7 @@ class ReticulumNode:
     
     def get_identity(self) -> RNS.Identity:
         return self.identity
+
+    @property
+    def hash_length(self) -> int:
+        return len(self.get_identity_hash())
