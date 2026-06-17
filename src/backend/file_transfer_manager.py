@@ -1,4 +1,4 @@
-"""Advanced file transfer manager with chunking."""
+"""File transfer manager (stub + ready for real RNS.Resource implementation)."""
 
 import asyncio
 import hashlib
@@ -6,14 +6,23 @@ from pathlib import Path
 from typing import Optional, Callable
 import RNS
 
+
 class FileTransferManager:
-    """Manages chunked file transfers."""
+    """Manages chunked file transfers over Reticulum."""
     
     CHUNK_SIZE = 65536  # 64KB
     
-    def __init__(self, identity: RNS.Identity):
+    def __init__(self, identity: RNS.Identity, downloads_dir: Optional[Path] = None):
         self.identity = identity
         self.transfers = {}
+        
+        # Where received files will be saved
+        if downloads_dir:
+            self.downloads_dir = Path(downloads_dir)
+            self.downloads_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.downloads_dir = Path.home() / "Downloads" / "ReticulumMesh"
+            self.downloads_dir.mkdir(parents=True, exist_ok=True)
     
     async def send_file(
         self,
@@ -21,7 +30,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file with progress tracking."""
+        """Send file with progress tracking (currently simulated)."""
         file_path = Path(file_path)
         
         if not file_path.exists():
