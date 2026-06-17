@@ -17,7 +17,6 @@ class Application:
         self.app_config_dir = Path.home() / ".config" / "reticulum-meshv"
         self.app_config_dir.mkdir(parents=True, exist_ok=True)
         
-        # Downloads folder for received files
         self.downloads_dir = Path.home() / "Downloads" / "ReticulumMesh"
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
         
