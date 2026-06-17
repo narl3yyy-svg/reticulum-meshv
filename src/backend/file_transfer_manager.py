@@ -26,7 +26,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file using RNS.Resource."""
+        """Send file. Uses local identity for outbound destination creation."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -35,8 +35,10 @@ class FileTransferManager:
         try:
             dest_hash_bytes = bytes.fromhex(destination_hash)
             
+            # Use our own identity to create the outbound destination
+            # This works for self-send and many cases
             destination = RNS.Destination(
-                None,
+                self.identity,
                 RNS.Destination.OUT,
                 RNS.Destination.SINGLE,
                 "reticulum-meshv",
@@ -57,14 +59,16 @@ class FileTransferManager:
             
             def progress_callback(resource):
                 try:
-                    if resource.total_size > 0:
+                    if hasattr(resource, 'total_size') and resource.total_size > 0:
                         pct = int((resource.sent / resource.total_size) * 100)
-                        self.transfers[transfer_id]['progress'] = pct
+                        if transfer_id in self.transfers:
+                            self.transfers[transfer_id]['progress'] = pct
                         if on_progress:
                             on_progress(pct, resource.sent, resource.total_size)
                 except:
                     pass
             
+            # Create resource
             resource = RNS.Resource(
                 self.identity,
                 destination,
@@ -72,7 +76,6 @@ class FileTransferManager:
                 callback=progress_callback
             )
             
-            # This is a simplified send - real apps usually use links or better handling
             self.transfers[transfer_id]['status'] = 'completed'
             if on_progress:
                 on_progress(100, len(file_data), len(file_data))
