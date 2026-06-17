@@ -13,27 +13,29 @@ class Application:
     """Main application controller."""
     
     def __init__(self):
-        # Reticulum config (interfaces, shared with rnsd daemon)
         self.rns_config_dir = Path.home() / ".reticulum"
-        
-        # App-specific config for our identity and settings (clean separation)
         self.app_config_dir = Path.home() / ".config" / "reticulum-meshv"
         self.app_config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Downloads folder for received files
+        self.downloads_dir = Path.home() / "Downloads" / "ReticulumMesh"
+        self.downloads_dir.mkdir(parents=True, exist_ok=True)
         
         self.rns_node = ReticulumNode(
             rns_config_dir=str(self.rns_config_dir),
             app_config_dir=str(self.app_config_dir)
         )
-        self.file_transfer_manager = FileTransferManager(self.rns_node.get_identity())
+        self.file_transfer_manager = FileTransferManager(
+            self.rns_node.get_identity(),
+            downloads_dir=self.downloads_dir
+        )
     
     def run(self):
-        """Run application."""
         app = QApplication(sys.argv)
         window = MainWindow(self)
         sys.exit(app.exec())
 
 def main():
-    """Entry point."""
     application = Application()
     application.run()
 
