@@ -1,4 +1,4 @@
-"""File transfer widget with easy identity sharing."""
+"""File transfer widget with folder support (zips folders before sending)."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 from pathlib import Path
+import zipfile
+import tempfile
 
 
 class FileTransferThread(QThread):
@@ -24,9 +26,7 @@ class FileTransferThread(QThread):
         self.destination = destination
     
     def run(self):
-        """Execute transfer (synchronous)."""
         try:
-            # Call sync version directly
             success = self.file_manager.send_file(
                 self.file_path,
                 self.destination,
@@ -40,12 +40,11 @@ class FileTransferThread(QThread):
             self.transfer_failed.emit(str(e), self.file_path)
     
     def _on_progress(self, percentage, current, total):
-        """Emit progress."""
         self.progress_updated.emit(int(current), int(total), int(percentage))
 
 
 class FileManagerWidget(QWidget):
-    """File sharing and transfer widget."""
+    """File sharing and transfer widget with folder support."""
     
     def __init__(self, backend):
         super().__init__()
@@ -93,21 +92,27 @@ class FileManagerWidget(QWidget):
         title.setStyleSheet("font-size: 20px; font-weight: bold; margin-top: 12px;")
         layout.addWidget(title)
         
-        subtitle = QLabel("Real Reticulum Resource transfers (unlimited size) - work in progress")
+        subtitle = QLabel("Supports files and folders (folders are zipped automatically before sending)")
         layout.addWidget(subtitle)
         
+        # File/Folder selection
         file_layout = QHBoxLayout()
         self.file_path_input = QLineEdit()
-        self.file_path_input.setPlaceholderText("Select a file to send...")
+        self.file_path_input.setPlaceholderText("Select a file or folder to send...")
         self.file_path_input.setReadOnly(True)
         
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self._browse_file)
+        browse_file_btn = QPushButton("Browse File")
+        browse_file_btn.clicked.connect(self._browse_file)
+        
+        browse_folder_btn = QPushButton("Browse Folder")
+        browse_folder_btn.clicked.connect(self._browse_folder)
         
         file_layout.addWidget(self.file_path_input)
-        file_layout.addWidget(browse_btn)
+        file_layout.addWidget(browse_file_btn)
+        file_layout.addWidget(browse_folder_btn)
         layout.addLayout(file_layout)
         
+        # Destination
         dest_layout = QHBoxLayout()
         dest_label = QLabel("Destination Hash:")
         self.dest_input = QLineEdit()
@@ -124,7 +129,7 @@ class FileManagerWidget(QWidget):
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
         
-        send_btn = QPushButton("📤 Send File over Mesh")
+        send_btn = QPushButton("📤 Send File/Folder over Mesh")
         send_btn.setMinimumHeight(44)
         send_btn.setStyleSheet("font-size: 15px; font-weight: bold;")
         send_btn.clicked.connect(self._send_file)
@@ -133,7 +138,7 @@ class FileManagerWidget(QWidget):
         layout.addWidget(QLabel("Transfer History"))
         self.transfers_table = QTableWidget()
         self.transfers_table.setColumnCount(4)
-        self.transfers_table.setHorizontalHeaderLabels(["File", "To", "Progress", "Status"])
+        self.transfers_table.setHorizontalHeaderLabels(["File / Folder", "To", "Progress", "Status"])
         self.transfers_table.setMaximumHeight(180)
         self.transfers_table.setAlternatingRowColors(True)
         layout.addWidget(self.transfers_table)
@@ -160,13 +165,20 @@ class FileManagerWidget(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select file to send")
         if file_path:
             self.file_path_input.setText(file_path)
+            self.file_path_input.setProperty("is_folder", False)
+    
+    def _browse_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Select folder to send")
+        if folder_path:
+            self.file_path_input.setText(folder_path)
+            self.file_path_input.setProperty("is_folder", True)
     
     def _send_file(self):
-        file_path = self.file_path_input.text().strip()
+        selected_path = self.file_path_input.text().strip()
         destination = self.dest_input.text().strip().lower()
         
-        if not file_path:
-            QMessageBox.warning(self, "Error", "Please select a file first.")
+        if not selected_path:
+            QMessageBox.warning(self, "Error", "Please select a file or folder first.")
             return
         
         if not destination:
@@ -182,20 +194,46 @@ class FileManagerWidget(QWidget):
             )
             return
         
+        path_obj = Path(selected_path)
+        is_folder = self.file_path_input.property("is_folder") or path_obj.is_dir()
+        
+        # If it's a folder, zip it first
+        if is_folder:
+            try:
+                temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+                temp_zip_path = Path(temp_zip.name)
+                temp_zip.close()
+                
+                with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file in path_obj.rglob("*"):
+                        if file.is_file():
+                            arcname = file.relative_to(path_obj)
+                            zipf.write(file, arcname)
+                
+                # Use the zip file for actual transfer, but keep original name for display
+                send_path = str(temp_zip_path)
+                display_name = path_obj.name + ".zip"
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to zip folder: {str(e)}")
+                return
+        else:
+            send_path = selected_path
+            display_name = path_obj.name
+        
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("Transfer starting...")
         
         row = self.transfers_table.rowCount()
         self.transfers_table.insertRow(row)
-        self.transfers_table.setItem(row, 0, QTableWidgetItem(Path(file_path).name))
+        self.transfers_table.setItem(row, 0, QTableWidgetItem(display_name))
         self.transfers_table.setItem(row, 1, QTableWidgetItem(destination[:12] + "..."))
         self.transfers_table.setItem(row, 2, QTableWidgetItem("0%"))
         self.transfers_table.setItem(row, 3, QTableWidgetItem("Sending..."))
         
-        self.transfer_thread = FileTransferThread(self.file_transfer_manager, file_path, destination)
+        self.transfer_thread = FileTransferThread(self.file_transfer_manager, send_path, destination)
         self.transfer_thread.progress_updated.connect(lambda cur, tot, pct: self._on_progress(cur, tot, pct, row))
-        self.transfer_thread.transfer_complete.connect(lambda fp: self._on_complete(fp, row))
+        self.transfer_thread.transfer_complete.connect(lambda fp: self._on_complete(fp, row, is_folder, display_name))
         self.transfer_thread.transfer_failed.connect(lambda err, fp: self._on_failed(err, fp, row))
         self.transfer_thread.start()
     
@@ -207,12 +245,14 @@ class FileManagerWidget(QWidget):
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 2, QTableWidgetItem(f"{percentage}%"))
     
-    def _on_complete(self, file_path, row):
+    def _on_complete(self, file_path, row, was_folder=False, display_name=""):
         self.status_label.setText("✓ Done!")
         self.progress_bar.setValue(100)
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
-        QMessageBox.information(self, "Success", f"File sent: {Path(file_path).name}")
+        
+        msg = f"Folder sent as {display_name}" if was_folder else f"File sent: {Path(file_path).name}"
+        QMessageBox.information(self, "Success", msg)
     
     def _on_failed(self, error, file_path, row):
         self.status_label.setText(f"✗ Failed")
