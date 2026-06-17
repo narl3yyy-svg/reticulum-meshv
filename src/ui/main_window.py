@@ -5,9 +5,9 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QStackedWidget, QLabel, QStatusBar, QPushButton
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
 from src.config.theme import get_stylesheet
 from src.ui.widgets.file_manager_widget import FileManagerWidget
+from src.ui.widgets.settings_widget import SettingsWidget
 
 
 class MainWindow(QMainWindow):
@@ -20,14 +20,12 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1200, 820)
         self.setStyleSheet(get_stylesheet())
         
-        # Central widget
         central = QWidget()
         self.setCentralWidget(central)
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Sidebar
         self.sidebar = QListWidget()
         self.sidebar.setMaximumWidth(220)
         self.sidebar.itemClicked.connect(self._on_nav)
@@ -40,17 +38,17 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(self.sidebar, 0)
         
-        # Content stack
         self.stack = QStackedWidget()
         self.file_widget = FileManagerWidget(backend)
-        self.stack.addWidget(QWidget())  # Messages placeholder
-        self.stack.addWidget(self.file_widget)
-        self.stack.addWidget(QWidget())  # Contacts placeholder
-        self.stack.addWidget(QWidget())  # Settings placeholder
+        self.settings_widget = SettingsWidget(backend)
+        self.stack.addWidget(QWidget())           # Messages
+        self.stack.addWidget(self.file_widget)    # Files
+        self.stack.addWidget(QWidget())           # Contacts
+        self.stack.addWidget(self.settings_widget)  # Settings
         
         layout.addWidget(self.stack, 1)
         
-        # Status bar with identity
+        # Status bar
         status_widget = QWidget()
         status_layout = QHBoxLayout(status_widget)
         status_layout.setContentsMargins(8, 2, 8, 2)
@@ -73,13 +71,11 @@ class MainWindow(QMainWindow):
         self.show()
     
     def _copy_identity_from_status(self):
-        """Copy identity from status bar."""
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText(self.backend.rns_node.get_identity_hash())
-        self.statusBar().showMessage("Identity hash copied to clipboard!", 3000)
+        self.statusBar().showMessage("Full identity hash copied!", 3000)
     
     def _on_nav(self, item):
-        """Handle navigation."""
         index = item.data(Qt.ItemDataRole.UserRole)
         self.stack.setCurrentIndex(index)
