@@ -3,11 +3,11 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QFileDialog, QProgressBar, QLabel,
-    QTableWidget, QTableWidgetItem, QMessageBox, QGroupBox, QFormLayout
+    QTableWidget, QTableWidgetItem, QMessageBox, QGroupBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QClipboard
 from PyQt6.QtWidgets import QApplication
+from pathlib import Path
 import asyncio
 
 
