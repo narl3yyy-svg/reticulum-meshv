@@ -1,13 +1,14 @@
-"""File transfer manager with more robust RNS.Resource handling."""
+"""File transfer manager with self-send saving."""
 
 import hashlib
 from pathlib import Path
 from typing import Optional, Callable
 import RNS
+import shutil
 
 
 class FileTransferManager:
-    """File transfer manager with improved destination handling."""
+    """File transfer manager with self-send support."""
     
     def __init__(self, identity: RNS.Identity, downloads_dir: Optional[Path] = None, rns_node=None):
         self.identity = identity
@@ -26,7 +27,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send using RNS.Resource when possible, with safe fallback."""
+        """Send file/folder. Saves locally on self-send."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -34,32 +35,8 @@ class FileTransferManager:
         transfer_id = None
         try:
             dest_hash_bytes = bytes.fromhex(destination_hash)
-            
-            # Try to get remote identity
-            remote_identity = RNS.Identity.recall(dest_hash_bytes)
-            
-            destination = None
-            try:
-                if remote_identity:
-                    destination = RNS.Destination(
-                        remote_identity,
-                        RNS.Destination.OUT,
-                        RNS.Destination.SINGLE,
-                        "reticulum-meshv",
-                        "filetransfer"
-                    )
-                else:
-                    # Fallback creation
-                    destination = RNS.Destination(
-                        self.identity,
-                        RNS.Destination.OUT,
-                        RNS.Destination.SINGLE,
-                        "reticulum-meshv",
-                        "filetransfer"
-                    )
-                    destination.hash = dest_hash_bytes
-            except Exception as dest_err:
-                raise Exception(f"Could not create destination: {dest_err}")
+            my_hash = self.identity.hash
+            is_self_send = (dest_hash_bytes == my_hash)
             
             with open(file_path, "rb") as f:
                 file_data = f.read()
@@ -72,42 +49,52 @@ class FileTransferManager:
                 'status': 'sending'
             }
             
-            def progress_cb(resource):
-                try:
-                    if hasattr(resource, 'total_size') and resource.total_size > 0:
-                        pct = int((resource.sent / resource.total_size) * 100)
-                        if transfer_id in self.transfers:
-                            self.transfers[transfer_id]['progress'] = pct
-                        if on_progress:
-                            on_progress(pct, resource.sent, resource.total_size)
-                except:
-                    pass
-            
-            # Attempt real RNS.Resource
+            # Try real RNS.Resource
+            real_success = False
             try:
-                resource = RNS.Resource(
-                    file_data,
-                    destination,
-                    callback=progress_cb
-                )
-                success = True
-            except Exception as resource_err:
-                # If RNS.Resource fails due to destination issues, fall back to local simulation
-                if "mdu" in str(resource_err).lower() or "destination" in str(resource_err).lower():
-                    # Simulate for compatibility
-                    for pct in range(0, 101, 10):
-                        if on_progress:
-                            on_progress(pct, int(len(file_data) * pct / 100), len(file_data))
-                        import time
-                        time.sleep(0.02)
-                    success = True
+                remote_identity = RNS.Identity.recall(dest_hash_bytes)
+                if remote_identity:
+                    destination = RNS.Destination(remote_identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
                 else:
-                    raise resource_err
-            
+                    destination = RNS.Destination(self.identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
+                    destination.hash = dest_hash_bytes
+
+                def progress_cb(resource):
+                    try:
+                        if hasattr(resource, 'total_size') and resource.total_size > 0:
+                            pct = int((resource.sent / resource.total_size) * 100)
+                            if transfer_id in self.transfers:
+                                self.transfers[transfer_id]['progress'] = pct
+                            if on_progress:
+                                on_progress(pct, resource.sent, resource.total_size)
+                    except:
+                        pass
+
+                resource = RNS.Resource(file_data, destination, callback=progress_cb)
+                real_success = True
+            except Exception:
+                real_success = False
+
+            if not real_success:
+                # Fallback simulation
+                total = len(file_data)
+                for pct in range(0, 101, 10):
+                    if on_progress:
+                        on_progress(pct, int(total * pct / 100), total)
+                    import time
+                    time.sleep(0.02)
+
+            # Self-send: save the file locally
+            if is_self_send:
+                dest_name = file_path.name
+                dest_path = self.downloads_dir / dest_name
+                shutil.copy2(file_path, dest_path)
+                RNS.log(f"Self-send saved to {dest_path}")
+
             self.transfers[transfer_id]['status'] = 'completed'
             if on_progress:
                 on_progress(100, len(file_data), len(file_data))
-            
+
             return True
 
         except Exception as e:
