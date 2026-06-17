@@ -1,4 +1,4 @@
-"""Reticulum node manager with improved receive handling."""
+"""Reticulum node manager with safe resource handling."""
 
 import RNS
 from pathlib import Path
@@ -19,7 +19,7 @@ class ReticulumNode:
             self.reticulum = RNS.Reticulum(configdir=str(self.rns_config_dir))
             self.identity = self._load_or_create_identity()
             
-            # File transfer destination
+            # Create file transfer destination
             self.file_destination = RNS.Destination(
                 self.identity,
                 RNS.Destination.IN,
@@ -28,14 +28,21 @@ class ReticulumNode:
                 "filetransfer"
             )
             
-            # Try to accept resources (some RNS versions)
+            # Try to set resource acceptance (different RNS versions have different APIs)
             try:
                 if hasattr(self.file_destination, "set_resource_strategy"):
                     self.file_destination.set_resource_strategy(RNS.Destination.ACCEPT_ALL)
-            except:
+            except Exception:
                 pass
             
-            self.file_destination.set_resource_concluded_callback(self._resource_concluded)
+            # Try to register concluded callback (may not exist in all versions)
+            try:
+                if hasattr(self.file_destination, "set_resource_concluded_callback"):
+                    self.file_destination.set_resource_concluded_callback(self._resource_concluded)
+                else:
+                    RNS.log("Note: Resource concluded callback not available in this RNS version")
+            except Exception as e:
+                RNS.log(f"Could not set resource callback: {e}")
             
             RNS.log("File transfer destination ready")
             RNS.log(f"Reticulum Mesh node ready. Identity: {self.get_short_identity_hash()}")
@@ -46,18 +53,12 @@ class ReticulumNode:
             self.file_destination = None
     
     def _resource_concluded(self, resource):
-        """Handle completed incoming resource (file or zipped folder)."""
+        """Handle completed incoming resource."""
         try:
             if resource.status != RNS.Resource.COMPLETE:
                 return
             
-            # Try to get a reasonable filename
-            filename = "received_file"
-            if hasattr(resource, 'filename') and resource.filename:
-                filename = resource.filename
-            elif hasattr(resource, 'name') and resource.name:
-                filename = resource.name
-            
+            filename = getattr(resource, 'filename', None) or getattr(resource, 'name', None) or "received_file"
             save_path = self._get_downloads_dir() / filename
             
             with open(save_path, "wb") as f:
@@ -65,18 +66,18 @@ class ReticulumNode:
             
             RNS.log(f"Received file saved: {save_path}")
             
-            # Auto-extract if it's a zip (for folder sends)
-            if filename.lower().endswith(".zip"):
+            # Auto-extract zip files (for folder transfers)
+            if str(filename).lower().endswith(".zip"):
                 try:
-                    extract_dir = save_path.with_suffix('')  # remove .zip
-                    with zipfile.ZipFile(save_path, 'r') as zip_ref:
+                    extract_dir = save_path.with_suffix("")
+                    with zipfile.ZipFile(save_path, "r") as zip_ref:
                         zip_ref.extractall(extract_dir)
-                    save_path.unlink()  # delete the zip after extraction
-                    RNS.log(f"Auto-extracted folder to: {extract_dir}")
-                except Exception as zip_err:
-                    RNS.log(f"Auto-extract failed: {zip_err}")
+                    save_path.unlink(missing_ok=True)
+                    RNS.log(f"Auto-extracted to: {extract_dir}")
+                except Exception as e:
+                    RNS.log(f"Auto-extract error: {e}")
         except Exception as e:
-            RNS.log(f"Error handling received resource: {e}")
+            RNS.log(f"Error in resource handler: {e}")
     
     def _get_downloads_dir(self):
         d = Path.home() / "Downloads" / "ReticulumMesh"
@@ -88,7 +89,7 @@ class ReticulumNode:
         if identity_path.exists():
             try:
                 identity = RNS.Identity.from_file(str(identity_path))
-                if identity and getattr(identity, 'hash', None):
+                if identity and getattr(identity, "hash", None):
                     return identity
             except:
                 pass
@@ -101,7 +102,7 @@ class ReticulumNode:
         return identity
     
     def get_identity_hash(self) -> str:
-        if not self.identity or not getattr(self.identity, 'hash', None):
+        if not self.identity or not getattr(self.identity, "hash", None):
             return ""
         try:
             return self.identity.hash.hex()
