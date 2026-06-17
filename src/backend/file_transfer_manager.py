@@ -26,7 +26,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file. Uses local identity for outbound destination creation."""
+        """Send file using RNS.Resource (correct constructor order)."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -35,8 +35,6 @@ class FileTransferManager:
         try:
             dest_hash_bytes = bytes.fromhex(destination_hash)
             
-            # Use our own identity to create the outbound destination
-            # This works for self-send and many cases
             destination = RNS.Destination(
                 self.identity,
                 RNS.Destination.OUT,
@@ -68,11 +66,10 @@ class FileTransferManager:
                 except:
                     pass
             
-            # Create resource
+            # Correct order for many RNS versions: data first, then destination
             resource = RNS.Resource(
-                self.identity,
+                file_data,
                 destination,
-                data=file_data,
                 callback=progress_callback
             )
             
