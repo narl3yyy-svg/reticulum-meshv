@@ -8,11 +8,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 from pathlib import Path
-import asyncio
 
 
 class FileTransferThread(QThread):
-    """Background file transfer thread."""
+    """Background file transfer thread (sync version)."""
     
     progress_updated = pyqtSignal(int, int, int)
     transfer_complete = pyqtSignal(str)
@@ -25,16 +24,18 @@ class FileTransferThread(QThread):
         self.destination = destination
     
     def run(self):
-        """Execute transfer."""
+        """Execute transfer (synchronous)."""
         try:
-            asyncio.run(
-                self.file_manager.send_file(
-                    self.file_path,
-                    self.destination,
-                    self._on_progress
-                )
+            # Call sync version directly
+            success = self.file_manager.send_file(
+                self.file_path,
+                self.destination,
+                self._on_progress
             )
-            self.transfer_complete.emit(self.file_path)
+            if success:
+                self.transfer_complete.emit(self.file_path)
+            else:
+                self.transfer_failed.emit("Transfer returned failure", self.file_path)
         except Exception as e:
             self.transfer_failed.emit(str(e), self.file_path)
     
