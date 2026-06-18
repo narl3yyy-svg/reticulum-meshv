@@ -1,4 +1,4 @@
-"""Interfaces tab - clearer link status + Announce moved to Contacts."""
+"""Interfaces tab with experimental RNS restart restored."""
 
 import RNS
 from PyQt6.QtWidgets import (
@@ -27,31 +27,29 @@ class InterfacesWidget(QWidget):
         title.setStyleSheet("font-size: 22px; font-weight: bold;")
         layout.addWidget(title)
 
-        # === Connection Status (Clear Summary) ===
+        # Connection Status
         status_group = QGroupBox("Connection Status")
         status_layout = QVBoxLayout()
 
-        self.status_summary = QLabel("Click 'Refresh Status' to check links")
+        self.status_summary = QLabel("Click Refresh to check links")
         self.status_summary.setStyleSheet("font-size: 14px; padding: 8px; background: #2a2a2a; border-radius: 6px;")
         status_layout.addWidget(self.status_summary)
 
         self.status_details = QTextEdit()
         self.status_details.setReadOnly(True)
-        self.status_details.setMaximumHeight(120)
+        self.status_details.setMaximumHeight(110)
         self.status_details.setFontFamily("monospace")
         status_layout.addWidget(self.status_details)
 
-        btn_row = QHBoxLayout()
         refresh_btn = QPushButton("Refresh Status")
         refresh_btn.clicked.connect(self._refresh_status)
-        btn_row.addWidget(refresh_btn)
+        status_layout.addWidget(refresh_btn)
 
-        status_layout.addLayout(btn_row)
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
 
-        # === Direct Connect to Phone ===
-        phone_group = QGroupBox("Connect to Android Phone (MeshChatX / Sideband)")
+        # Direct Connect to Phone
+        phone_group = QGroupBox("Connect to Android Phone")
         phone_layout = QVBoxLayout()
 
         ip_row = QHBoxLayout()
@@ -73,8 +71,8 @@ class InterfacesWidget(QWidget):
         phone_group.setLayout(phone_layout)
         layout.addWidget(phone_group)
 
-        # === Config Editor ===
-        editor_group = QGroupBox("Advanced: Edit Configuration File")
+        # Config Editor
+        editor_group = QGroupBox("Advanced Configuration Editor")
         editor_layout = QVBoxLayout()
 
         self.config_editor = QTextEdit()
@@ -94,18 +92,23 @@ class InterfacesWidget(QWidget):
         editor_group.setLayout(editor_layout)
         layout.addWidget(editor_group)
 
-        # === Restart ===
-        restart_group = QGroupBox("Restart")
+        # Restart Options (with Experimental restored)
+        restart_group = QGroupBox("Restart Options")
         restart_layout = QVBoxLayout()
 
-        note = QLabel("Full application restart is the safest way to reload interfaces.")
+        note = QLabel("Full app restart is safest. Experimental option tries a lighter reload.")
         note.setWordWrap(True)
         restart_layout.addWidget(note)
 
-        restart_btn = QPushButton("Restart Application Now")
-        restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
-        restart_btn.clicked.connect(self._restart_app)
-        restart_layout.addWidget(restart_btn)
+        safe_btn = QPushButton("Restart Application (Recommended & Safe)")
+        safe_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
+        safe_btn.clicked.connect(self._restart_app)
+        restart_layout.addWidget(safe_btn)
+
+        exp_btn = QPushButton("Try Restart Reticulum Only (Experimental)")
+        exp_btn.setStyleSheet("background-color: #555555; color: white;")
+        exp_btn.clicked.connect(self._try_experimental_rns_restart)
+        restart_layout.addWidget(exp_btn)
 
         restart_group.setLayout(restart_layout)
         layout.addWidget(restart_group)
@@ -116,48 +119,29 @@ class InterfacesWidget(QWidget):
         try:
             result = subprocess.run(["rnstatus"], capture_output=True, text=True, timeout=6)
             output = result.stdout or result.stderr
-
-            # Simple parsing for key info
-            lines = output.splitlines()
-            summary_lines = []
-            tcp_status = "Unknown"
-
-            for line in lines:
-                if "TCPClientInterface" in line or "TCPInterface" in line:
-                    if "Down" in line or "Status" in line:
-                        tcp_status = "Down / Not Connected"
-                    elif "Up" in line or "Peers" in line:
-                        tcp_status = "Up / Connected"
-
-                if any(kw in line for kw in ["AutoInterface", "TCP", "Peers", "Status", "Interface"]):
-                    summary_lines.append(line.strip())
-
-            self.status_details.setPlainText("\n".join(summary_lines))
+            self.status_details.setPlainText(output)
 
             if "TCPClientInterface" in output or "TCPInterface" in output:
-                color = "green" if "Up" in tcp_status else "orange"
-                self.status_summary.setText(f"<b>TCP Link to Phone:</b> {tcp_status}")
-                self.status_summary.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold;")
+                if "Down" in output or "Status : Down" in output:
+                    self.status_summary.setText("TCP Link to Phone: Down / Not Connected")
+                    self.status_summary.setStyleSheet("color: orange; font-size: 14px; font-weight: bold;")
+                else:
+                    self.status_summary.setText("TCP Link to Phone: Up / Connected")
+                    self.status_summary.setStyleSheet("color: #4ade80; font-size: 14px; font-weight: bold;")
             else:
-                self.status_summary.setText("No TCP client configured to phone yet.")
+                self.status_summary.setText("No active TCP client to phone detected.")
                 self.status_summary.setStyleSheet("color: #888; font-size: 14px;")
 
         except Exception as e:
-            self.status_details.setPlainText(f"Error running rnstatus: {e}")
-            self.status_summary.setText("Could not read link status")
+            self.status_details.setPlainText(f"Error: {e}")
 
     def _add_phone_connection(self):
         ip = self.phone_ip.text().strip()
         port = self.phone_port.text().strip() or "4242"
-
-        if not ip:
-            QMessageBox.warning(self, "Missing IP", "Please enter your phone's IP address.")
-            return
+        if not ip: return
 
         current = self.config_editor.toPlainText()
-        if f"target_host = {ip}" in current:
-            QMessageBox.information(self, "Already Exists", "You already have a connection to this IP.")
-            return
+        if f"target_host = {ip}" in current: return
 
         template = f"""
 [[TCPClientInterface]]
@@ -167,10 +151,10 @@ class InterfacesWidget(QWidget):
     target_port = {port}
 """
         self.config_editor.append(template)
-        QMessageBox.information(self, "Added", "TCP connection to phone added.\nClick Save Config, then Restart Application.")
+        QMessageBox.information(self, "Added", "TCP client added. Save Config then Restart.")
 
     def _load_config_text(self):
-        return self.config_path.read_text() if self.config_path.exists() else "# No config file found\n"
+        return self.config_path.read_text() if self.config_path.exists() else ""
 
     def _reload_config(self):
         self.config_editor.setPlainText(self._load_config_text())
@@ -178,12 +162,26 @@ class InterfacesWidget(QWidget):
     def _save_config(self):
         try:
             self.config_path.write_text(self.config_editor.toPlainText())
-            QMessageBox.information(self, "Saved", "Configuration saved. Restart the app to apply changes.")
+            QMessageBox.information(self, "Saved", "Saved. Restart app to apply.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
+    def _try_experimental_rns_restart(self):
+        reply = QMessageBox.question(self, "Experimental", 
+            "This tries to reload Reticulum without full restart.\nIt may not work perfectly.\n\nContinue?", 
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes: return
+
+        try:
+            if self.rns_node:
+                self.rns_node.announce_myself()
+                self._refresh_status()
+                QMessageBox.information(self, "Done", "Re-announced and refreshed status.")
+        except Exception as e:
+            QMessageBox.warning(self, "Limited", f"Could only do partial reload: {e}")
+
     def _restart_app(self):
-        if QMessageBox.question(self, "Restart Application", "Restart now? This is the safest way to reload interfaces.",
+        if QMessageBox.question(self, "Restart", "Restart the application now?", 
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             import os, sys
             from PyQt6.QtWidgets import QApplication
