@@ -1,4 +1,4 @@
-"""Reticulum node manager - made resilient to bad config."""
+"""Reticulum node manager with improved announcement handling."""
 
 import RNS
 from pathlib import Path
@@ -22,7 +22,6 @@ class ReticulumNode:
             self.reticulum = RNS.Reticulum(configdir=str(self.rns_config_dir))
             self.identity = self._load_or_create_identity()
 
-            # Create file transfer destination
             self.file_destination = RNS.Destination(
                 self.identity,
                 RNS.Destination.IN,
@@ -31,7 +30,6 @@ class ReticulumNode:
                 "filetransfer"
             )
 
-            # Register announcement handler (best effort)
             try:
                 RNS.Transport.register_announce_handler(self._announce_received)
             except Exception:
@@ -40,10 +38,8 @@ class ReticulumNode:
             RNS.log("Reticulum Mesh node ready. Identity: " + self.get_short_identity_hash())
 
         except Exception as e:
-            # Do NOT crash the whole application.
-            # Log the error so user sees it, but let the GUI start.
             try:
-                RNS.log(f"Reticulum failed to start (bad config?). Error: {e}")
+                RNS.log(f"Reticulum failed to start: {e}")
             except:
                 print(f"Reticulum failed to start: {e}")
 
@@ -63,13 +59,18 @@ class ReticulumNode:
     def _announce_received(self, destination_hash, announced_identity, app_data):
         try:
             hash_hex = destination_hash.hex()
-            if announced_identity:
-                self.discovered_peers[hash_hex] = {
-                    'name': announced_identity.hash.hex()[:12],
-                    'last_seen': time.time()
-                }
-        except Exception:
-            pass
+            # Always store the peer, even if we don't have the full identity yet
+            name = announced_identity.hash.hex()[:12] if announced_identity else hash_hex[:12]
+            self.discovered_peers[hash_hex] = {
+                'name': name,
+                'last_seen': time.time()
+            }
+            RNS.log(f"Discovered peer via announcement: {hash_hex[:12]}...")
+        except Exception as e:
+            try:
+                RNS.log(f"Error processing announcement: {e}")
+            except:
+                pass
 
     def get_discovered_peers(self):
         return list(self.discovered_peers.items())
