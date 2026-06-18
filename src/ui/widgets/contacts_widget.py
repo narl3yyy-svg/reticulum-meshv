@@ -1,5 +1,6 @@
 """Contacts widget with announcement and peer discovery."""
 
+import time
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QListWidget, QPushButton, 
     QHBoxLayout, QInputDialog, QMessageBox, QMenu, QGroupBox
@@ -83,10 +84,8 @@ class ContactsWidget(QWidget):
     def _refresh_discovered(self):
         self.discovered_list.clear()
         for h, info in self.rns_node.get_discovered_peers():
-            display = f"{info.get('name', h[:12])}  —  last seen: {int(time.time() - info.get('last_seen', 0))}s ago"
-            item = self.discovered_list.addItem(display)
-            # Store hash in item data
-            # Note: QListWidgetItem doesn't store data easily here, so we keep parallel list
+            display = f"{info.get('name', h[:12])} — last seen {int(time.time() - info.get('last_seen', 0))}s ago"
+            self.discovered_list.addItem(display)
 
     def _show_discovered_menu(self, pos):
         item = self.discovered_list.itemAt(pos)
@@ -134,7 +133,7 @@ class ContactsWidget(QWidget):
     def _refresh_contacts_list(self):
         self.contacts_list.clear()
         for name, h in self.contacts:
-            display = f"{name}  —  {h[:12]}...{h[-4:] if len(h) > 16 else h}"
+            display = f"{name} — {h[:12]}...{h[-4:] if len(h) > 16 else h}"
             self.contacts_list.addItem(display)
 
     def _show_contacts_menu(self, pos):
