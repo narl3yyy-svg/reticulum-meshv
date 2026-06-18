@@ -1,4 +1,4 @@
-"""Settings widget with reliable restart."""
+"""Settings widget with actual interface config saving."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 import sys
 import os
+import configparser
 
 
 class SettingsWidget(QWidget):
@@ -44,13 +45,12 @@ class SettingsWidget(QWidget):
         dl_group.setLayout(dl_layout)
         layout.addWidget(dl_group)
 
-        # === Interfaces ===
+        # === Interfaces (now actually saves) ===
         iface_group = QGroupBox("Reticulum Interfaces & Connectivity")
         iface_layout = QVBoxLayout()
 
         iface_info = QLabel(
-            "Reticulum reads its interface configuration from <b>~/.reticulum/config</b>.<br>"
-            "You can edit it manually or use the options below for common setups."
+            "Configure common Reticulum interfaces. Changes are saved to <b>~/.reticulum/config</b>."
         )
         iface_info.setWordWrap(True)
         iface_layout.addWidget(iface_info)
@@ -60,12 +60,12 @@ class SettingsWidget(QWidget):
         self.config_path_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #aaa;")
         iface_layout.addWidget(self.config_path_label)
 
-        self.auto_interface_cb = QCheckBox("Enable AutoInterface (recommended for local/WiFi/Bluetooth discovery)")
+        self.auto_interface_cb = QCheckBox("Enable AutoInterface (recommended for WiFi + phone discovery)")
         self.auto_interface_cb.setChecked(True)
         iface_layout.addWidget(self.auto_interface_cb)
 
         tcp_layout = QHBoxLayout()
-        self.tcp_server_cb = QCheckBox("Run TCP Server on port:")
+        self.tcp_server_cb = QCheckBox("Enable TCP Server on port:")
         self.tcp_port = QLineEdit("4242")
         self.tcp_port.setMaximumWidth(80)
         tcp_layout.addWidget(self.tcp_server_cb)
@@ -73,23 +73,19 @@ class SettingsWidget(QWidget):
         tcp_layout.addStretch()
         iface_layout.addLayout(tcp_layout)
 
-        apply_btn = QPushButton("Apply Interface Changes")
-        apply_btn.clicked.connect(self._apply_interface_changes)
+        apply_btn = QPushButton("Save Interface Settings")
+        apply_btn.setStyleSheet("font-weight: bold;")
+        apply_btn.clicked.connect(self._save_interface_settings)
         iface_layout.addWidget(apply_btn)
 
-        # === Restart Button ===
-        restart_layout = QHBoxLayout()
         restart_btn = QPushButton("Restart Application Now")
         restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
         restart_btn.clicked.connect(self._restart_application)
-        restart_layout.addWidget(restart_btn)
-        restart_layout.addStretch()
-        iface_layout.addLayout(restart_layout)
+        iface_layout.addWidget(restart_btn)
 
         note = QLabel(
-            "<b>Tip for Android phone:</b> Install Sideband or another Reticulum app on your phone. "
-            "Use the same WiFi network and enable AutoInterface on both devices, or set up a TCP connection. "
-            "After announcing on one device, the other should discover it in the Contacts tab."
+            "<b>Connecting to Android phone:</b> Enable AutoInterface on both devices on the same WiFi, "
+            "or enable TCP Server here and connect from Sideband as a TCP client."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: #ccc; font-size: 11px; margin-top: 8px;")
@@ -114,7 +110,7 @@ class SettingsWidget(QWidget):
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
 
-        # Identity section
+        # Identity
         id_group = QGroupBox("Identity")
         id_layout = QVBoxLayout()
 
@@ -129,7 +125,64 @@ class SettingsWidget(QWidget):
 
         layout.addStretch()
 
+        self._load_current_interface_settings()
         self._refresh_status()
+
+    def _load_current_interface_settings(self):
+        """Try to read current settings from config file."""
+        config_path = Path.home() / ".reticulum" / "config"
+        if not config_path.exists():
+            return
+
+        try:
+            parser = configparser.ConfigParser()
+            parser.read(config_path)
+
+            # AutoInterface
+            if parser.has_section("interfaces") and parser.has_section("interfaces.AutoInterface"):
+                enabled = parser.getboolean("interfaces.AutoInterface", "interface_enabled", fallback=True)
+                self.auto_interface_cb.setChecked(enabled)
+
+            # TCP Server
+            if parser.has_section("interfaces") and parser.has_section("interfaces.TCPServerInterface"):
+                enabled = parser.getboolean("interfaces.TCPServerInterface", "interface_enabled", fallback=False)
+                port = parser.get("interfaces.TCPServerInterface", "listen_port", fallback="4242")
+                self.tcp_server_cb.setChecked(enabled)
+                self.tcp_port.setText(port)
+        except Exception:
+            pass
+
+    def _save_interface_settings(self):
+        config_path = Path.home() / ".reticulum" / "config"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        parser = configparser.ConfigParser()
+        if config_path.exists():
+            parser.read(config_path)
+
+        if not parser.has_section("interfaces"):
+            parser.add_section("interfaces")
+
+        # AutoInterface
+        auto_section = "interfaces.AutoInterface"
+        if not parser.has_section(auto_section):
+            parser.add_section(auto_section)
+        parser.set(auto_section, "interface_enabled", str(self.auto_interface_cb.isChecked()))
+
+        # TCPServerInterface
+        tcp_section = "interfaces.TCPServerInterface"
+        if not parser.has_section(tcp_section):
+            parser.add_section(tcp_section)
+        parser.set(tcp_section, "interface_enabled", str(self.tcp_server_cb.isChecked()))
+        parser.set(tcp_section, "listen_port", self.tcp_port.text().strip())
+
+        try:
+            with open(config_path, "w") as f:
+                parser.write(f)
+            QMessageBox.information(self, "Saved", 
+                "Interface settings saved.\nPlease restart the application for changes to take effect.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save config:\n{str(e)}")
 
     def _change_download_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose download folder")
@@ -139,31 +192,19 @@ class SettingsWidget(QWidget):
                 self.backend.downloads_dir = Path(folder)
             QMessageBox.information(self, "Updated", "Download folder changed.")
 
-    def _apply_interface_changes(self):
-        config_path = Path.home() / ".reticulum" / "config"
-        QMessageBox.information(
-            self,
-            "Interface Changes",
-            "To apply interface changes, edit the config file:\n\n" + str(config_path) + 
-            "\n\nThen click Restart Application Now."
-        )
-
     def _restart_application(self):
         reply = QMessageBox.question(
             self,
             "Restart Application",
-            "The application will now restart.\nContinue?",
+            "Restart now to apply interface changes?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Always restart using python -m src.main for reliable module imports
                 python = sys.executable
                 os.execv(python, [python, "-m", "src.main"])
             except Exception as e:
-                QMessageBox.critical(self, "Restart Failed", 
-                    f"Could not restart automatically.\nPlease run: python -m src.main\n\nError: {str(e)}")
+                QMessageBox.critical(self, "Restart Failed", f"Please restart manually with: python -m src.main\n\n{e}")
                 QApplication.quit()
 
     def _refresh_status(self):
@@ -173,18 +214,16 @@ class SettingsWidget(QWidget):
                 status = f"Reticulum running\n"
                 status += f"Identity: {self.rns_node.get_short_identity_hash()}\n"
                 status += f"Config dir: {reticulum.configdir}\n\n"
-                status += "Interfaces are configured in ~/.reticulum/config\n"
-                status += "Check the file for active interfaces and listening ports."
+                status += "Check ~/.reticulum/config for active interfaces and ports."
                 self.status_text.setPlainText(status)
             else:
                 self.status_text.setPlainText("Reticulum not initialized.")
         except Exception as e:
-            self.status_text.setPlainText(f"Error getting status: {str(e)}")
+            self.status_text.setPlainText(f"Error: {str(e)}")
 
     def _backup_identity(self):
         QMessageBox.information(
             self,
             "Backup Identity",
-            "Your identity.key file is at:\n\n" + str(self.backend.app_config_dir / "identity.key") + 
-            "\n\nCopy this file to back up your permanent mesh identity."
+            "Your identity.key is at:\n\n" + str(self.backend.app_config_dir / "identity.key")
         )
