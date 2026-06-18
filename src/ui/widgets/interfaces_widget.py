@@ -1,4 +1,4 @@
-"""Dedicated Interfaces tab - improved for direct phone connection."""
+"""Dedicated Interfaces tab - fixed templates with proper 'type' key."""
 
 import RNS
 from PyQt6.QtWidgets import (
@@ -27,12 +27,11 @@ class InterfacesWidget(QWidget):
         layout.addWidget(title)
 
         # === Direct Connect to Phone ===
-        phone_group = QGroupBox("Direct Connect to Android MeshChatX / Sideband")
+        phone_group = QGroupBox("Direct Connect to Android MeshChatX / Sideband (Recommended)")
         phone_layout = QVBoxLayout()
 
         phone_info = QLabel(
-            "Easiest reliable method: Connect directly to your phone via TCP.\n"
-            "Enter your phone's local IP below (find it in phone's WiFi settings or MeshChatX)."
+            "Enter your phone's local IP address below. This will add a TCP client so your desktop can connect directly to the phone."
         )
         phone_info.setWordWrap(True)
         phone_layout.addWidget(phone_info)
@@ -40,7 +39,7 @@ class InterfacesWidget(QWidget):
         ip_layout = QHBoxLayout()
         ip_layout.addWidget(QLabel("Phone IP:"))
         self.phone_ip = QLineEdit()
-        self.phone_ip.setPlaceholderText("192.168.1.XXX")
+        self.phone_ip.setPlaceholderText("192.168.1.XXX or 10.10.100.3")
         ip_layout.addWidget(self.phone_ip)
 
         ip_layout.addWidget(QLabel("Port:"))
@@ -48,22 +47,22 @@ class InterfacesWidget(QWidget):
         self.phone_port.setMaximumWidth(80)
         ip_layout.addWidget(self.phone_port)
 
-        connect_btn = QPushButton("Connect to Phone (Add TCP Client)")
+        connect_btn = QPushButton("Add TCP Connection to Phone")
         connect_btn.setStyleSheet("font-weight: bold;")
         connect_btn.clicked.connect(self._connect_to_phone)
         ip_layout.addWidget(connect_btn)
 
         phone_layout.addLayout(ip_layout)
 
-        note = QLabel("After adding, Save Config → Restart Application. Then try announcing again.")
+        note = QLabel("After adding, click Save Config → Restart Application. Then try announcing again from both devices.")
         note.setStyleSheet("color: #888; font-size: 11px;")
         phone_layout.addWidget(note)
 
         phone_group.setLayout(phone_layout)
         layout.addWidget(phone_group)
 
-        # === Current Config Editor ===
-        editor_group = QGroupBox("Full Configuration (Advanced)")
+        # === Config Editor ===
+        editor_group = QGroupBox("Configuration Editor (Advanced)")
         editor_layout = QVBoxLayout()
 
         self.config_editor = QTextEdit()
@@ -74,7 +73,7 @@ class InterfacesWidget(QWidget):
         btns = QHBoxLayout()
         save_btn = QPushButton("Save Config")
         save_btn.clicked.connect(self._save_config)
-        reload_btn = QPushButton("Reload")
+        reload_btn = QPushButton("Reload from Disk")
         reload_btn.clicked.connect(self._reload_config)
         btns.addWidget(save_btn)
         btns.addWidget(reload_btn)
@@ -91,20 +90,20 @@ class InterfacesWidget(QWidget):
         auto_btn.clicked.connect(lambda: self._add_interface_template("auto"))
         quick_layout.addWidget(auto_btn)
 
-        udp_btn = QPushButton("Add UDPInterface (sometimes more reliable than Auto)")
+        udp_btn = QPushButton("Add UDPInterface")
         udp_btn.clicked.connect(lambda: self._add_interface_template("udp"))
         quick_layout.addWidget(udp_btn)
 
         quick_group.setLayout(quick_layout)
         layout.addWidget(quick_group)
 
-        # Restart
+        # Restart buttons
         restart_btn = QPushButton("Restart Application Now")
         restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
         restart_btn.clicked.connect(self._restart_app)
         layout.addWidget(restart_btn)
 
-        reannounce_btn = QPushButton("Re-Announce + Refresh Discovered Peers")
+        reannounce_btn = QPushButton("Re-Announce Myself + Refresh Peers")
         reannounce_btn.clicked.connect(self._reannounce)
         layout.addWidget(reannounce_btn)
 
@@ -115,18 +114,19 @@ class InterfacesWidget(QWidget):
         port = self.phone_port.text().strip()
 
         if not ip:
-            QMessageBox.warning(self, "Error", "Please enter your phone's IP address.")
+            QMessageBox.warning(self, "Error", "Please enter the phone's IP address.")
             return
 
         current = self.config_editor.toPlainText()
 
-        # Check if already exists
         if f"target_host = {ip}" in current:
-            QMessageBox.information(self, "Already Exists", "A TCP client to this IP already exists in the config.")
+            QMessageBox.information(self, "Already Exists", "A TCP client to this IP already exists.")
             return
 
+        # Fixed: include 'type = TCPClientInterface'
         template = f"""
 [[TCPClientInterface]]
+    type = TCPClientInterface
     interface_enabled = True
     target_host = {ip}
     target_port = {port}
@@ -134,7 +134,7 @@ class InterfacesWidget(QWidget):
 
         self.config_editor.append(template)
         QMessageBox.information(self, "Added", 
-            f"TCP Client to phone ({ip}:{port}) added.\nClick Save Config → Restart Application.")
+            f"TCP Client to phone ({ip}:{port}) added.\nClick Save Config then Restart Application.")
 
     def _load_config_text(self):
         if self.config_path.exists():
@@ -148,16 +148,16 @@ class InterfacesWidget(QWidget):
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             self.config_path.write_text(self.config_editor.toPlainText())
-            QMessageBox.information(self, "Saved", "Configuration saved. Please restart the application.")
+            QMessageBox.information(self, "Saved", "Configuration saved. Please restart the application for changes to take effect.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
     def _add_interface_template(self, t):
         current = self.config_editor.toPlainText()
         if t == "auto":
-            template = "\n[[AutoInterface]]\n    interface_enabled = True\n"
+            template = "\n[[AutoInterface]]\n    type = AutoInterface\n    interface_enabled = True\n"
         elif t == "udp":
-            template = "\n[[UDPInterface]]\n    interface_enabled = True\n    listen_ip = 0.0.0.0\n    listen_port = 0\n"
+            template = "\n[[UDPInterface]]\n    type = UDPInterface\n    interface_enabled = True\n    listen_ip = 0.0.0.0\n    listen_port = 0\n"
         else:
             return
 
