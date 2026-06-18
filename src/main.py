@@ -1,4 +1,4 @@
-"""Application entry point - made resilient to bad Reticulum config."""
+"""Application entry point with automatic config recovery."""
 
 import sys
 from pathlib import Path
@@ -18,18 +18,29 @@ class Application:
         self.downloads_dir = Path.home() / "Downloads" / "ReticulumMesh"
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create ReticulumNode in a way that won't crash the GUI
+        self.rns_node = None
+        self.file_transfer_manager = None
+
+        # Try to start Reticulum, with automatic recovery if config is bad
         try:
             self.rns_node = ReticulumNode(
                 rns_config_dir=str(self.rns_config_dir),
                 app_config_dir=str(self.app_config_dir)
             )
         except Exception as e:
-            # Last-resort safety net
-            print(f"Critical error creating ReticulumNode: {e}")
-            self.rns_node = None
+            print(f"ReticulumNode creation failed: {e}")
+            self._recover_from_bad_config()
+            # Try one more time after recovery
+            try:
+                self.rns_node = ReticulumNode(
+                    rns_config_dir=str(self.rns_config_dir),
+                    app_config_dir=str(self.app_config_dir)
+                )
+            except Exception as e2:
+                print(f"Reticulum still failing after recovery: {e2}")
+                self.rns_node = None
 
-        # FileTransferManager can handle None rns_node in degraded mode
+        # Create FileTransferManager (degraded mode is ok)
         try:
             identity = self.rns_node.get_identity() if self.rns_node else None
             self.file_transfer_manager = FileTransferManager(
@@ -40,16 +51,46 @@ class Application:
         except Exception:
             self.file_transfer_manager = None
 
+    def _recover_from_bad_config(self):
+        """Backup bad config and create a minimal working one."""
+        config_path = self.rns_config_dir / "config"
+        if config_path.exists():
+            backup_path = config_path.with_suffix(".config.bad")
+            try:
+                config_path.rename(backup_path)
+                print(f"Backed up bad config to {backup_path}")
+            except Exception as e:
+                print(f"Could not backup bad config: {e}")
+
+        # Create a minimal safe config
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            minimal_config = '''[reticulum]
+enable_transport = False
+share_instance = Yes
+
+[logging]
+loglevel = 4
+
+[interfaces]
+
+    [[AutoInterface]]
+    interface_enabled = True
+'''
+            config_path.write_text(minimal_config)
+            print("Created minimal safe config. Reticulum should start now.")
+        except Exception as e:
+            print(f"Failed to create minimal config: {e}")
+
     def run(self):
         app = QApplication(sys.argv)
 
-        # If Reticulum failed completely, warn the user but still open the app
-        if self.rns_node is None or self.rns_node.reticulum is None:
+        if self.rns_node is None or getattr(self.rns_node, 'reticulum', None) is None:
             QMessageBox.warning(
                 None,
-                "Reticulum Configuration Error",
-                "Reticulum could not start due to a problem in ~/.reticulum/config.\n\n"
-                "The application will still open. Please go to the Interfaces tab and fix the configuration, then restart."
+                "Reticulum Had Issues",
+                "There was a problem starting Reticulum (likely a bad config).\n\n"
+                "The application will still open. Go to the Interfaces tab to review/fix the configuration, then restart."
             )
 
         window = MainWindow(self)
