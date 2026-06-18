@@ -3,13 +3,21 @@
 Typical mobile layout with bottom navigation.
 """
 
+import sys
+from pathlib import Path
+
+# Allow importing from the main repo's backend during development
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
 from toga import (
     App, MainWindow, Box, Label, Button, ScrollContainer,
     TextInput
 )
 from toga.style import Pack
 
-from toga.constants import COLUMN, ROW, CENTER
+from toga.constants import COLUMN, ROW
+
+from src.backend import ReticulumNode
 
 
 class MessagesScreen(Box):
@@ -61,22 +69,28 @@ class ReticulumMeshApp(App):
     def startup(self):
         self.main_window = MainWindow(title="Reticulum Mesh")
 
-        # Main content container that will switch screens
+        # Try to initialize Reticulum node (will be expanded later)
+        try:
+            self.rns_node = ReticulumNode(
+                rns_config_dir=str(Path.home() / ".reticulum"),
+                app_config_dir=str(Path.home() / ".config" / "reticulum-mesh-mobile")
+            )
+            print("ReticulumNode initialized successfully on mobile.")
+        except Exception as e:
+            print(f"Failed to init ReticulumNode: {e}")
+            self.rns_node = None
+
+        # Main content container
         self.content_box = Box(style=Pack(direction=COLUMN, flex=1))
 
-        # Bottom navigation bar
+        # Bottom navigation
         nav_bar = Box(style=Pack(direction=ROW, padding=8, background_color="#1f1f1f"))
 
-        self.btn_messages = Button("Messages", on_press=lambda w: self.show_screen("messages"))
-        self.btn_files = Button("Files", on_press=lambda w: self.show_screen("files"))
-        self.btn_contacts = Button("Contacts", on_press=lambda w: self.show_screen("contacts"))
-        self.btn_settings = Button("Settings", on_press=lambda w: self.show_screen("settings"))
-
-        for btn in [self.btn_messages, self.btn_files, self.btn_contacts, self.btn_settings]:
+        for name in ["Messages", "Files", "Contacts", "Settings"]:
+            btn = Button(name, on_press=lambda w, n=name.lower(): self.show_screen(n))
             btn.style.flex = 1
             nav_bar.add(btn)
 
-        # Container that holds the current screen
         self.screen_container = Box(style=Pack(direction=COLUMN, flex=1))
 
         self.content_box.add(self.screen_container)
@@ -85,7 +99,6 @@ class ReticulumMeshApp(App):
         self.main_window.content = self.content_box
         self.main_window.show()
 
-        # Show Messages by default
         self.show_screen("messages")
 
     def show_screen(self, screen_name):
