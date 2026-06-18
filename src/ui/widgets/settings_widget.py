@@ -1,5 +1,6 @@
 """Settings widget with advanced identity management."""
 
+import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication, QInputDialog
@@ -83,13 +84,11 @@ class SettingsWidget(QWidget):
         id_group = QGroupBox("Identity Management")
         id_layout = QVBoxLayout()
 
-        # Current identity info
         self.identity_info = QLabel()
         self.identity_info.setStyleSheet("font-family: monospace; background: #2a2a2a; padding: 8px; border-radius: 4px;")
         self._update_identity_display()
         id_layout.addWidget(self.identity_info)
 
-        # Buttons
         btn_row1 = QHBoxLayout()
         new_id_btn = QPushButton("Create New Identity")
         new_id_btn.clicked.connect(self._create_new_identity)
@@ -102,13 +101,13 @@ class SettingsWidget(QWidget):
         btn_row2 = QHBoxLayout()
         load_btn = QPushButton("Load Identity from File...")
         load_btn.clicked.connect(self._load_identity_from_file)
-        export_btn = QPushButton("Export Identity (copy to Downloads)")
+        export_btn = QPushButton("Export Identity")
         export_btn.clicked.connect(self._export_identity)
         btn_row2.addWidget(load_btn)
         btn_row2.addWidget(export_btn)
         id_layout.addLayout(btn_row2)
 
-        note = QLabel("Your identity is permanent. Creating a new one will back up the old one.")
+        note = QLabel("Your identity is permanent. Creating a new one backs up the old one automatically.")
         note.setStyleSheet("color: #888; font-size: 11px;")
         id_layout.addWidget(note)
 
@@ -145,7 +144,7 @@ class SettingsWidget(QWidget):
     def _create_new_identity(self):
         reply = QMessageBox.question(
             self, "Create New Identity",
-            "This will back up your current identity and create a new one.\nYour old files/contacts will no longer be accessible with the new identity.\n\nContinue?",
+            "This will back up your current identity and create a new one.\nContinue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -157,12 +156,11 @@ class SettingsWidget(QWidget):
                 backup_path = identity_path.with_suffix(".key.backup")
                 shutil.copy2(identity_path, backup_path)
 
-            # Create new identity
-            new_identity = RNS.Identity()  # type: ignore
+            new_identity = RNS.Identity()
             new_identity.to_file(str(identity_path))
 
             QMessageBox.information(self, "Success", 
-                f"New identity created.\nOld identity backed up to:\n{backup_path}\n\nPlease restart the application.")
+                f"New identity created and old one backed up.\nPlease restart the application.")
             self._update_identity_display()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to create new identity:\n{str(e)}")
@@ -175,7 +173,7 @@ class SettingsWidget(QWidget):
         try:
             target = self.backend.app_config_dir / "identity.key"
             shutil.copy2(file_path, target)
-            QMessageBox.information(self, "Loaded", "Identity loaded. Please restart the application.")
+            QMessageBox.information(self, "Loaded", "Identity loaded successfully. Please restart.")
             self._update_identity_display()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load identity:\n{str(e)}")
@@ -189,7 +187,7 @@ class SettingsWidget(QWidget):
         if dest_path:
             try:
                 shutil.copy2(self.backend.app_config_dir / "identity.key", dest_path)
-                QMessageBox.information(self, "Exported", f"Identity exported to:\n{dest_path}")
+                QMessageBox.information(self, "Exported", f"Identity exported to {dest_path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
@@ -202,13 +200,11 @@ class SettingsWidget(QWidget):
         if not parser.has_section("interfaces"):
             parser.add_section("interfaces")
 
-        # AutoInterface
         auto_sec = "interfaces.AutoInterface"
         if not parser.has_section(auto_sec):
             parser.add_section(auto_sec)
         parser.set(auto_sec, "interface_enabled", str(self.auto_interface_cb.isChecked()))
 
-        # TCPServer
         tcp_sec = "interfaces.TCPServerInterface"
         if not parser.has_section(tcp_sec):
             parser.add_section(tcp_sec)
@@ -218,7 +214,7 @@ class SettingsWidget(QWidget):
         try:
             with open(config_path, "w") as f:
                 parser.write(f)
-            QMessageBox.information(self, "Saved", "Settings saved. Restart to apply.")
+            QMessageBox.information(self, "Saved", "Interface settings saved. Restart to apply.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
@@ -248,7 +244,7 @@ class SettingsWidget(QWidget):
                 self.backend.downloads_dir = Path(folder)
 
     def _restart_application(self):
-        if QMessageBox.question(self, "Restart", "Restart now?", 
+        if QMessageBox.question(self, "Restart", "Restart application now?", 
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             try:
                 os.execv(sys.executable, [sys.executable, "-m", "src.main"])
