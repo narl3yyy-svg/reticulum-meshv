@@ -1,0 +1,14 @@
+[tool.briefcase]
+project_name = "Reticulum Mesh"
+bundle = "com.narl3y.reticulummesh"
+version = "0.1.0"
+requires = [
+    "re reticulum-meshv @ file://../../",  # Link to the main backend
+]
+
+[tool.briefcase.app.reticulum_mesh]
+formal_name = "Reticulum Mesh"
+description = "Reticulum Mesh mobile app"
+icon = "src/reticulum_mesh/resources/icon"
+sources = ["src/reticulum_mesh"]
+requires = []
