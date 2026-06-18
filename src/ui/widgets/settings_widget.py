@@ -1,4 +1,4 @@
-"""Settings widget with proper restart functionality."""
+"""Settings widget with reliable restart."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
@@ -77,7 +77,7 @@ class SettingsWidget(QWidget):
         apply_btn.clicked.connect(self._apply_interface_changes)
         iface_layout.addWidget(apply_btn)
 
-        # === Restart Button (now actually restarts) ===
+        # === Restart Button ===
         restart_layout = QHBoxLayout()
         restart_btn = QPushButton("Restart Application Now")
         restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
@@ -152,17 +152,18 @@ class SettingsWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Restart Application",
-            "The application will now restart to apply changes.\n\nContinue?",
+            "The application will now restart.\nContinue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Restart the Python process cleanly
+                # Always restart using python -m src.main for reliable module imports
                 python = sys.executable
-                os.execl(python, python, *sys.argv)
+                os.execv(python, [python, "-m", "src.main"])
             except Exception as e:
-                QMessageBox.critical(self, "Restart Failed", f"Could not restart automatically.\nPlease restart the app manually.\n\nError: {str(e)}")
+                QMessageBox.critical(self, "Restart Failed", 
+                    f"Could not restart automatically.\nPlease run: python -m src.main\n\nError: {str(e)}")
                 QApplication.quit()
 
     def _refresh_status(self):
