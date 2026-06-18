@@ -1,4 +1,4 @@
-"""File transfer widget with proper folder zipping (preserves original name)."""
+"""File transfer widget - clean folder names (no random suffix)."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 from pathlib import Path
 import zipfile
 import tempfile
+import os
 
 
 class FileTransferThread(QThread):
@@ -182,21 +183,25 @@ class FileManagerWidget(QWidget):
         display_name = path_obj.name
 
         if is_folder:
-            # Create zip with original folder name
+            # Create zip with clean original name (no random suffix)
             try:
                 zip_name = path_obj.name + ".zip"
-                temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip", prefix=path_obj.name + "_")
-                temp_zip_path = Path(temp_zip.name)
-                temp_zip.close()
+                # Create in temp dir with clean name
+                temp_dir = Path(tempfile.gettempdir())
+                clean_zip_path = temp_dir / zip_name
 
-                with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Remove old one if exists
+                if clean_zip_path.exists():
+                    clean_zip_path.unlink()
+
+                with zipfile.ZipFile(clean_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for file in path_obj.rglob("*"):
                         if file.is_file():
                             arcname = file.relative_to(path_obj)
                             zipf.write(file, arcname)
 
-                send_path = str(temp_zip_path)
-                display_name = zip_name   # show as FolderName.zip in history
+                send_path = str(clean_zip_path)
+                display_name = zip_name
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to prepare folder: {str(e)}")
                 return
@@ -233,7 +238,7 @@ class FileManagerWidget(QWidget):
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
 
         if was_folder:
-            msg = f"Folder sent successfully (will appear as folder on recipient side)"
+            msg = f"Folder '{original_name}' sent successfully"
         else:
             msg = f"File sent: {Path(file_path).name}"
         QMessageBox.information(self, "Success", msg)
