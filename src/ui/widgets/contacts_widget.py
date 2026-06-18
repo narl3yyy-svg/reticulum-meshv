@@ -1,4 +1,4 @@
-"""Contacts widget with announcement and peer discovery."""
+"""Contacts tab with Announce button and clearer peer discovery."""
 
 import time
 from PyQt6.QtWidgets import (
@@ -15,21 +15,22 @@ class ContactsWidget(QWidget):
         super().__init__()
         self.backend = backend
         self.rns_node = backend.rns_node
-        self.contacts = []  # Manual contacts: (name, hash)
+        self.contacts = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(12)
 
-        # === Announce Section ===
+        # === Announce Section (moved here from Interfaces) ===
         announce_group = QGroupBox("Network Presence")
         announce_layout = QVBoxLayout()
 
-        self.announce_btn = QPushButton("Announce Myself on Network")
-        self.announce_btn.clicked.connect(self._announce_myself)
-        announce_layout.addWidget(self.announce_btn)
+        announce_btn = QPushButton("Announce Myself on Network")
+        announce_btn.setStyleSheet("font-weight: bold;")
+        announce_btn.clicked.connect(self._announce_myself)
+        announce_layout.addWidget(announce_btn)
 
-        announce_info = QLabel("This makes your hash visible to other nodes on the mesh.")
+        announce_info = QLabel("This makes you visible to other nodes so they can discover you.")
         announce_info.setStyleSheet("color: #888; font-size: 11px;")
         announce_layout.addWidget(announce_info)
 
@@ -52,7 +53,7 @@ class ContactsWidget(QWidget):
         discovered_group.setLayout(discovered_layout)
         layout.addWidget(discovered_group)
 
-        # === Manual Contacts ===
+        # === My Contacts ===
         manual_group = QGroupBox("My Contacts")
         manual_layout = QVBoxLayout()
 
@@ -68,7 +69,6 @@ class ContactsWidget(QWidget):
         manual_group.setLayout(manual_layout)
         layout.addWidget(manual_group)
 
-        # Auto-refresh discovered peers every 10 seconds
         self.timer = QTimer()
         self.timer.timeout.connect(self._refresh_discovered)
         self.timer.start(10000)
@@ -76,10 +76,10 @@ class ContactsWidget(QWidget):
         self._refresh_discovered()
 
     def _announce_myself(self):
-        if self.rns_node.announce_myself():
-            QMessageBox.information(self, "Announced", "Your identity has been announced to the network.")
+        if self.rns_node and self.rns_node.announce_myself():
+            QMessageBox.information(self, "Announced", "You are now visible on the network.")
         else:
-            QMessageBox.warning(self, "Error", "Could not announce (no destination available).")
+            QMessageBox.warning(self, "Error", "Could not announce (Reticulum not ready).")
 
     def _refresh_discovered(self):
         self.discovered_list.clear()
@@ -114,12 +114,12 @@ class ContactsWidget(QWidget):
         if ok and name:
             self.contacts.append((name, h))
             self._refresh_contacts_list()
-            QMessageBox.information(self, "Added", f"Added {name} to contacts.")
+            QMessageBox.information(self, "Added", f"Added {name}")
 
     def _copy_hash(self, h):
         clipboard = QApplication.clipboard()
         clipboard.setText(h)
-        QMessageBox.information(self, "Copied", "Hash copied to clipboard!")
+        QMessageBox.information(self, "Copied", "Hash copied!")
 
     def _add_contact(self):
         name, ok = QInputDialog.getText(self, "Add Contact", "Contact name:")
