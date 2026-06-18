@@ -1,14 +1,15 @@
-"""File transfer manager with self-send saving."""
+"""File transfer manager with proper folder handling (auto-extract on self-send)."""
 
 import hashlib
 from pathlib import Path
 from typing import Optional, Callable
 import RNS
 import shutil
+import zipfile
 
 
 class FileTransferManager:
-    """File transfer manager with self-send support."""
+    """Handles sending with folder-to-folder experience on self-send."""
     
     def __init__(self, identity: RNS.Identity, downloads_dir: Optional[Path] = None, rns_node=None):
         self.identity = identity
@@ -27,7 +28,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file/folder. Saves locally on self-send."""
+        """Send file or folder. On self-send, result is a real folder (not zip)."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -49,7 +50,7 @@ class FileTransferManager:
                 'status': 'sending'
             }
             
-            # Try real RNS.Resource
+            # Try real transfer first
             real_success = False
             try:
                 remote_identity = RNS.Identity.recall(dest_hash_bytes)
@@ -70,13 +71,13 @@ class FileTransferManager:
                     except:
                         pass
 
-                resource = RNS.Resource(file_data, destination, callback=progress_cb)
+                RNS.Resource(file_data, destination, callback=progress_cb)
                 real_success = True
             except Exception:
                 real_success = False
 
             if not real_success:
-                # Fallback simulation
+                # Simulated progress
                 total = len(file_data)
                 for pct in range(0, 101, 10):
                     if on_progress:
@@ -84,12 +85,22 @@ class FileTransferManager:
                     import time
                     time.sleep(0.02)
 
-            # Self-send: save the file locally
+            # === Self-send handling: make it appear as original folder ===
             if is_self_send:
                 dest_name = file_path.name
                 dest_path = self.downloads_dir / dest_name
-                shutil.copy2(file_path, dest_path)
-                RNS.log(f"Self-send saved to {dest_path}")
+
+                if dest_name.lower().endswith('.zip'):
+                    # It's a zipped folder from the widget -> extract it
+                    extract_dir = self.downloads_dir / dest_name[:-4]  # remove .zip
+                    extract_dir.mkdir(exist_ok=True)
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_dir)
+                    RNS.log(f"Self-send folder extracted to: {extract_dir}")
+                else:
+                    # Regular file
+                    shutil.copy2(file_path, dest_path)
+                    RNS.log(f"Self-send file saved to: {dest_path}")
 
             self.transfers[transfer_id]['status'] = 'completed'
             if on_progress:
