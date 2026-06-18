@@ -1,12 +1,13 @@
-"""Settings widget with Interfaces configuration."""
+"""Settings widget with Interfaces configuration and Restart button."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit
+    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication
 )
 from PyQt6.QtCore import Qt
 from pathlib import Path
-import configparser
+import sys
+import os
 
 
 class SettingsWidget(QWidget):
@@ -54,18 +55,15 @@ class SettingsWidget(QWidget):
         iface_info.setWordWrap(True)
         iface_layout.addWidget(iface_info)
 
-        # Show current config path
         config_path = Path.home() / ".reticulum" / "config"
         self.config_path_label = QLabel(f"Config file: {config_path}")
         self.config_path_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #aaa;")
         iface_layout.addWidget(self.config_path_label)
 
-        # Common interfaces
         self.auto_interface_cb = QCheckBox("Enable AutoInterface (recommended for local/WiFi/Bluetooth discovery)")
         self.auto_interface_cb.setChecked(True)
         iface_layout.addWidget(self.auto_interface_cb)
 
-        # TCP Server option
         tcp_layout = QHBoxLayout()
         self.tcp_server_cb = QCheckBox("Run TCP Server on port:")
         self.tcp_port = QLineEdit("4242")
@@ -75,9 +73,18 @@ class SettingsWidget(QWidget):
         tcp_layout.addStretch()
         iface_layout.addLayout(tcp_layout)
 
-        apply_btn = QPushButton("Apply Interface Changes (requires restart)")
+        apply_btn = QPushButton("Apply Interface Changes")
         apply_btn.clicked.connect(self._apply_interface_changes)
         iface_layout.addWidget(apply_btn)
+
+        # === Restart Button ===
+        restart_layout = QHBoxLayout()
+        restart_btn = QPushButton("Restart Application (to apply interface changes)")
+        restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
+        restart_btn.clicked.connect(self._restart_application)
+        restart_layout.addWidget(restart_btn)
+        restart_layout.addStretch()
+        iface_layout.addLayout(restart_layout)
 
         note = QLabel(
             "<b>Tip for Android phone:</b> Install Sideband or another Reticulum app on your phone. "
@@ -107,7 +114,7 @@ class SettingsWidget(QWidget):
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
 
-        # Identity section (existing)
+        # Identity section
         id_group = QGroupBox("Identity")
         id_layout = QVBoxLayout()
 
@@ -122,7 +129,6 @@ class SettingsWidget(QWidget):
 
         layout.addStretch()
 
-        # Initial status refresh
         self._refresh_status()
 
     def _change_download_folder(self):
@@ -134,14 +140,24 @@ class SettingsWidget(QWidget):
             QMessageBox.information(self, "Updated", "Download folder changed.")
 
     def _apply_interface_changes(self):
-        # This is a simplified version. For full control, edit ~/.reticulum/config manually.
         config_path = Path.home() / ".reticulum" / "config"
         QMessageBox.information(
             self,
             "Interface Changes",
-            "To apply interface changes, please edit the config file manually:\n\n" + str(config_path) + 
-            "\n\nCommon sections:\n[interfaces]\n  [[AutoInterface]]\n  interface_enabled = True\n\n  [[TCPServerInterface]]\n  interface_enabled = True\n  listen_port = 4242\n\nThen restart the application."
+            "To apply interface changes, edit the config file:\n\n" + str(config_path) + 
+            "\n\nThen click the Restart Application button below."
         )
+
+    def _restart_application(self):
+        reply = QMessageBox.question(
+            self,
+            "Restart Application",
+            "This will close the current application.\nYou will need to start it again manually.\n\nDo you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            QApplication.quit()
 
     def _refresh_status(self):
         try:
@@ -151,7 +167,7 @@ class SettingsWidget(QWidget):
                 status += f"Identity: {self.rns_node.get_short_identity_hash()}\n"
                 status += f"Config dir: {reticulum.configdir}\n\n"
                 status += "Interfaces are configured in ~/.reticulum/config\n"
-                status += "Check the file for active interfaces and ports.\n"
+                status += "Check the file for active interfaces and listening ports."
                 self.status_text.setPlainText(status)
             else:
                 self.status_text.setPlainText("Reticulum not initialized.")
