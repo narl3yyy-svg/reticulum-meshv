@@ -1,4 +1,4 @@
-"""Settings widget with Interfaces configuration and Restart button."""
+"""Settings widget with proper restart functionality."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
@@ -77,9 +77,9 @@ class SettingsWidget(QWidget):
         apply_btn.clicked.connect(self._apply_interface_changes)
         iface_layout.addWidget(apply_btn)
 
-        # === Restart Button ===
+        # === Restart Button (now actually restarts) ===
         restart_layout = QHBoxLayout()
-        restart_btn = QPushButton("Restart Application (to apply interface changes)")
+        restart_btn = QPushButton("Restart Application Now")
         restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
         restart_btn.clicked.connect(self._restart_application)
         restart_layout.addWidget(restart_btn)
@@ -145,19 +145,25 @@ class SettingsWidget(QWidget):
             self,
             "Interface Changes",
             "To apply interface changes, edit the config file:\n\n" + str(config_path) + 
-            "\n\nThen click the Restart Application button below."
+            "\n\nThen click Restart Application Now."
         )
 
     def _restart_application(self):
         reply = QMessageBox.question(
             self,
             "Restart Application",
-            "This will close the current application.\nYou will need to start it again manually.\n\nDo you want to continue?",
+            "The application will now restart to apply changes.\n\nContinue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            QApplication.quit()
+            try:
+                # Restart the Python process cleanly
+                python = sys.executable
+                os.execl(python, python, *sys.argv)
+            except Exception as e:
+                QMessageBox.critical(self, "Restart Failed", f"Could not restart automatically.\nPlease restart the app manually.\n\nError: {str(e)}")
+                QApplication.quit()
 
     def _refresh_status(self):
         try:
