@@ -1,16 +1,14 @@
-"""Redesigned Messages tab with nice chat bubbles (MeshChatX-inspired)."""
+"""Messages tab with Announce button + chat bubbles."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTextEdit, QScrollArea, QFrame, QSizePolicy
+    QTextEdit, QScrollArea, QFrame, QSizePolicy, QGroupBox, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
 from datetime import datetime
 
 
 class ChatBubble(QFrame):
-    """A single chat message bubble."""
     def __init__(self, text: str, is_sent: bool, timestamp: str = ""):
         super().__init__()
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -18,23 +16,13 @@ class ChatBubble(QFrame):
 
         if is_sent:
             self.setStyleSheet("""
-                QFrame {
-                    background-color: #3a7bd5;
-                    border-radius: 16px;
-                    padding: 10px 14px;
-                    margin: 4px 8px 4px 60px;
-                }
+                QFrame { background-color: #3a7bd5; border-radius: 16px; padding: 10px 14px; margin: 4px 8px 4px 60px; }
                 QLabel { color: white; }
             """)
             alignment = Qt.AlignmentFlag.AlignRight
         else:
             self.setStyleSheet("""
-                QFrame {
-                    background-color: #3a3a3c;
-                    border-radius: 16px;
-                    padding: 10px 14px;
-                    margin: 4px 60px 4px 8px;
-                }
+                QFrame { background-color: #3a3a3c; border-radius: 16px; padding: 10px 14px; margin: 4px 60px 4px 8px; }
                 QLabel { color: #e0e0e0; }
             """)
             alignment = Qt.AlignmentFlag.AlignLeft
@@ -46,7 +34,6 @@ class ChatBubble(QFrame):
         text_label = QLabel(text)
         text_label.setWordWrap(True)
         text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        text_label.setStyleSheet("font-size: 14px; line-height: 1.3;")
         layout.addWidget(text_label)
 
         if timestamp:
@@ -69,29 +56,37 @@ class MessagesWidget(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # Header
+        # Header with Announce button
+        header_row = QHBoxLayout()
         header = QLabel("Messages")
-        header.setStyleSheet("font-size: 22px; font-weight: bold; margin-bottom: 8px;")
-        layout.addWidget(header)
+        header.setStyleSheet("font-size: 22px; font-weight: bold;")
+        header_row.addWidget(header)
+        header_row.addStretch()
 
-        # Destination input (compact)
+        announce_btn = QPushButton("Announce Myself")
+        announce_btn.setMinimumHeight(28)
+        announce_btn.clicked.connect(self._announce_myself)
+        header_row.addWidget(announce_btn)
+        layout.addLayout(header_row)
+
+        # Destination
         dest_row = QHBoxLayout()
         dest_row.addWidget(QLabel("To:"))
         self.dest_input = QLineEdit()
-        self.dest_input.setPlaceholderText("64-char destination hash or select from Contacts")
+        self.dest_input.setPlaceholderText("64-char destination hash")
         self.dest_input.setMinimumHeight(32)
         dest_row.addWidget(self.dest_input, 1)
 
-        self.chat_btn = QPushButton("Start Chat")
-        self.chat_btn.setMinimumHeight(32)
-        self.chat_btn.clicked.connect(self._start_chat)
-        dest_row.addWidget(self.chat_btn)
+        start_btn = QPushButton("Start Chat")
+        start_btn.setMinimumHeight(32)
+        start_btn.clicked.connect(self._start_chat)
+        dest_row.addWidget(start_btn)
         layout.addLayout(dest_row)
 
         # Chat area
         self.chat_scroll = QScrollArea()
         self.chat_scroll.setWidgetResizable(True)
-        self.chat_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.chat_scroll.setStyleSheet("QScrollArea { border: none; }")
 
         self.chat_container = QWidget()
         self.chat_layout = QVBoxLayout(self.chat_container)
@@ -115,34 +110,35 @@ class MessagesWidget(QWidget):
         send_btn.setStyleSheet("font-weight: bold;")
         send_btn.clicked.connect(self._send_message)
         input_row.addWidget(send_btn)
-
         layout.addLayout(input_row)
 
-        # Auto-scroll timer
         self.scroll_timer = QTimer()
         self.scroll_timer.setSingleShot(True)
         self.scroll_timer.timeout.connect(self._scroll_to_bottom)
+
+    def _announce_myself(self):
+        if self.rns_node and self.rns_node.announce_myself():
+            QMessageBox.information(self, "Announced", "You are now visible on the network.")
+        else:
+            QMessageBox.warning(self, "Error", "Could not announce.")
 
     def _start_chat(self):
         dest = self.dest_input.text().strip().lower()
         if len(dest) == 64:
             self.current_dest = dest
-            self._add_system_message(f"Chatting with {dest[:12]}...")
+            self._add_system_message(f"Now chatting with {dest[:12]}...")
         else:
-            self._add_system_message("Please enter a valid 64-character hash.")
+            QMessageBox.warning(self, "Invalid", "Please enter a valid 64-character hash.")
 
     def _send_message(self):
         if not self.current_dest:
-            self._add_system_message("Please enter a destination hash first (or use Contacts).")
+            self._add_system_message("Please enter a destination hash first.")
             return
 
         text = self.message_input.text().strip()
-        if not text:
-            return
+        if not text: return
 
-        if not self.rns_node or not self.rns_node.identity:
-            self._add_system_message("Reticulum not ready.")
-            return
+        if not self.rns_node or not self.rns_node.identity: return
 
         try:
             dest_bytes = bytes.fromhex(self.current_dest)
