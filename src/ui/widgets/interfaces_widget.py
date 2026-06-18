@@ -1,13 +1,12 @@
-"""Dedicated Interfaces tab for advanced Reticulum configuration."""
+"""Dedicated Interfaces tab - improved for direct phone connection."""
 
 import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QGroupBox, QMessageBox, QInputDialog
+    QGroupBox, QMessageBox, QLineEdit, QInputDialog
 )
 from PyQt6.QtCore import Qt
 from pathlib import Path
-import configparser
 
 
 class InterfacesWidget(QWidget):
@@ -27,18 +26,44 @@ class InterfacesWidget(QWidget):
         title.setStyleSheet("font-size: 22px; font-weight: bold;")
         layout.addWidget(title)
 
-        info = QLabel(
-            "Advanced interface configuration. Most changes require a full application restart because Reticulum does not support clean in-process restarts."
+        # === Direct Connect to Phone ===
+        phone_group = QGroupBox("Direct Connect to Android MeshChatX / Sideband")
+        phone_layout = QVBoxLayout()
+
+        phone_info = QLabel(
+            "Easiest reliable method: Connect directly to your phone via TCP.\n"
+            "Enter your phone's local IP below (find it in phone's WiFi settings or MeshChatX)."
         )
-        info.setWordWrap(True)
-        layout.addWidget(info)
+        phone_info.setWordWrap(True)
+        phone_layout.addWidget(phone_info)
 
-        self.config_label = QLabel(f"Config file: {self.config_path}")
-        self.config_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #aaa;")
-        layout.addWidget(self.config_label)
+        ip_layout = QHBoxLayout()
+        ip_layout.addWidget(QLabel("Phone IP:"))
+        self.phone_ip = QLineEdit()
+        self.phone_ip.setPlaceholderText("192.168.1.XXX")
+        ip_layout.addWidget(self.phone_ip)
 
-        # Raw config editor
-        editor_group = QGroupBox("Configuration Editor")
+        ip_layout.addWidget(QLabel("Port:"))
+        self.phone_port = QLineEdit("4242")
+        self.phone_port.setMaximumWidth(80)
+        ip_layout.addWidget(self.phone_port)
+
+        connect_btn = QPushButton("Connect to Phone (Add TCP Client)")
+        connect_btn.setStyleSheet("font-weight: bold;")
+        connect_btn.clicked.connect(self._connect_to_phone)
+        ip_layout.addWidget(connect_btn)
+
+        phone_layout.addLayout(ip_layout)
+
+        note = QLabel("After adding, Save Config → Restart Application. Then try announcing again.")
+        note.setStyleSheet("color: #888; font-size: 11px;")
+        phone_layout.addWidget(note)
+
+        phone_group.setLayout(phone_layout)
+        layout.addWidget(phone_group)
+
+        # === Current Config Editor ===
+        editor_group = QGroupBox("Full Configuration (Advanced)")
         editor_layout = QVBoxLayout()
 
         self.config_editor = QTextEdit()
@@ -46,66 +71,75 @@ class InterfacesWidget(QWidget):
         self.config_editor.setPlainText(self._load_config_text())
         editor_layout.addWidget(self.config_editor)
 
-        btn_row = QHBoxLayout()
+        btns = QHBoxLayout()
         save_btn = QPushButton("Save Config")
         save_btn.clicked.connect(self._save_config)
-        reload_btn = QPushButton("Reload from Disk")
+        reload_btn = QPushButton("Reload")
         reload_btn.clicked.connect(self._reload_config)
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(reload_btn)
-        editor_layout.addLayout(btn_row)
+        btns.addWidget(save_btn)
+        btns.addWidget(reload_btn)
+        editor_layout.addLayout(btns)
 
         editor_group.setLayout(editor_layout)
         layout.addWidget(editor_group)
 
         # Quick Add
-        quick_group = QGroupBox("Quick Add Interfaces")
+        quick_group = QGroupBox("Quick Add Other Interfaces")
         quick_layout = QVBoxLayout()
 
-        auto_btn = QPushButton("Add AutoInterface")
+        auto_btn = QPushButton("Add/Enable AutoInterface")
         auto_btn.clicked.connect(lambda: self._add_interface_template("auto"))
         quick_layout.addWidget(auto_btn)
 
-        tcp_server_btn = QPushButton("Add TCPServerInterface (port 4242)")
-        tcp_server_btn.clicked.connect(lambda: self._add_interface_template("tcpserver"))
-        quick_layout.addWidget(tcp_server_btn)
-
-        tcp_client_btn = QPushButton("Add TCPClientInterface")
-        tcp_client_btn.clicked.connect(lambda: self._add_interface_template("tcpclient"))
-        quick_layout.addWidget(tcp_client_btn)
+        udp_btn = QPushButton("Add UDPInterface (sometimes more reliable than Auto)")
+        udp_btn.clicked.connect(lambda: self._add_interface_template("udp"))
+        quick_layout.addWidget(udp_btn)
 
         quick_group.setLayout(quick_layout)
         layout.addWidget(quick_group)
 
-        # Restart explanation
-        restart_group = QGroupBox("Restart Reticulum")
-        restart_layout = QVBoxLayout()
-
-        note = QLabel(
-            "Reticulum cannot be cleanly restarted from inside the running application without risking instability. "
-            "The safest method is to restart the whole application."
-        )
-        note.setWordWrap(True)
-        restart_layout.addWidget(note)
-
-        restart_btn = QPushButton("Restart Application Now (Recommended)")
+        # Restart
+        restart_btn = QPushButton("Restart Application Now")
         restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
         restart_btn.clicked.connect(self._restart_app)
-        restart_layout.addWidget(restart_btn)
+        layout.addWidget(restart_btn)
 
-        reannounce_btn = QPushButton("Re-Announce Myself + Refresh Peers")
+        reannounce_btn = QPushButton("Re-Announce + Refresh Discovered Peers")
         reannounce_btn.clicked.connect(self._reannounce)
-        restart_layout.addWidget(reannounce_btn)
-
-        restart_group.setLayout(restart_layout)
-        layout.addWidget(restart_group)
+        layout.addWidget(reannounce_btn)
 
         layout.addStretch()
+
+    def _connect_to_phone(self):
+        ip = self.phone_ip.text().strip()
+        port = self.phone_port.text().strip()
+
+        if not ip:
+            QMessageBox.warning(self, "Error", "Please enter your phone's IP address.")
+            return
+
+        current = self.config_editor.toPlainText()
+
+        # Check if already exists
+        if f"target_host = {ip}" in current:
+            QMessageBox.information(self, "Already Exists", "A TCP client to this IP already exists in the config.")
+            return
+
+        template = f"""
+[[TCPClientInterface]]
+    interface_enabled = True
+    target_host = {ip}
+    target_port = {port}
+"""
+
+        self.config_editor.append(template)
+        QMessageBox.information(self, "Added", 
+            f"TCP Client to phone ({ip}:{port}) added.\nClick Save Config → Restart Application.")
 
     def _load_config_text(self):
         if self.config_path.exists():
             return self.config_path.read_text()
-        return "# No config file found. Reticulum will create defaults on startup.\n"
+        return "# No config file found yet.\n"
 
     def _reload_config(self):
         self.config_editor.setPlainText(self._load_config_text())
@@ -114,7 +148,7 @@ class InterfacesWidget(QWidget):
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             self.config_path.write_text(self.config_editor.toPlainText())
-            QMessageBox.information(self, "Saved", "Config saved. Restart the app for changes to take effect.")
+            QMessageBox.information(self, "Saved", "Configuration saved. Please restart the application.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
@@ -122,15 +156,8 @@ class InterfacesWidget(QWidget):
         current = self.config_editor.toPlainText()
         if t == "auto":
             template = "\n[[AutoInterface]]\n    interface_enabled = True\n"
-        elif t == "tcpserver":
-            template = "\n[[TCPServerInterface]]\n    interface_enabled = True\n    listen_port = 4242\n"
-        elif t == "tcpclient":
-            host, ok = QInputDialog.getText(self, "TCP Client", "Host:port to connect to (e.g. 192.168.1.50:4242):")
-            if not ok or not host: return
-            parts = host.split(":")
-            h = parts[0]
-            p = parts[1] if len(parts) > 1 else "4242"
-            template = f"\n[[TCPClientInterface]]\n    interface_enabled = True\n    target_host = {h}\n    target_port = {p}\n"
+        elif t == "udp":
+            template = "\n[[UDPInterface]]\n    interface_enabled = True\n    listen_ip = 0.0.0.0\n    listen_port = 0\n"
         else:
             return
 
@@ -138,20 +165,18 @@ class InterfacesWidget(QWidget):
             self.config_editor.append(template)
 
     def _reannounce(self):
-        if self.rns_node and hasattr(self.rns_node, 'announce_myself'):
-            success = self.rns_node.announce_myself()
-            if success:
-                QMessageBox.information(self, "Announced", "Announcement sent. Check Discovered Peers in Contacts tab.")
+        if self.rns_node and hasattr(self.rns_node, "announce_myself"):
+            if self.rns_node.announce_myself():
+                QMessageBox.information(self, "Announced", "Announcement sent. Check Contacts → Discovered Peers.")
             else:
-                QMessageBox.warning(self, "Error", "Could not announce.")
+                QMessageBox.warning(self, "Failed", "Could not send announcement.")
         else:
-            QMessageBox.warning(self, "Error", "Announcement system not available.")
+            QMessageBox.warning(self, "Error", "Announcement system not ready.")
 
     def _restart_app(self):
         from PyQt6.QtWidgets import QApplication
         import os, sys
-        if QMessageBox.question(self, "Restart Application", 
-            "Restart the whole application now?\n(This is currently the safest way to reload Reticulum interfaces)",
+        if QMessageBox.question(self, "Restart", "Restart application now?", 
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             try:
                 os.execv(sys.executable, [sys.executable, "-m", "src.main"])
