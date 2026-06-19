@@ -142,12 +142,18 @@ class ContactCard(QFrame):
         elif action == copy_a:
             QApplication.clipboard().setText(h)
         elif action == delete_a:
+            h = self.contact_data.get('hash', '')
             parent_widget = self.parentWidget()
             while parent_widget and not hasattr(parent_widget, 'cards'):
                 parent_widget = parent_widget.parentWidget()
             if parent_widget and hasattr(parent_widget, 'cards'):
                 if self in parent_widget.cards:
                     parent_widget.cards.remove(self)
+                if hasattr(parent_widget, '_deleted_hashes'):
+                    parent_widget._deleted_hashes.add(h)
+            win = self.window()
+            if win and hasattr(win, 'backend') and win.backend and win.backend.contact_manager:
+                win.backend.contact_manager.remove(h)
             self.setParent(None)
             self.deleteLater()
 
@@ -228,6 +234,7 @@ class ContactsWidget(QWidget):
         layout.addWidget(scroll, 1)
 
         self.cards = []
+        self._deleted_hashes: set[str] = set()
         self._timer = QTimer()
         self._timer.timeout.connect(self._refresh)
         self._timer.start(10000)
@@ -241,7 +248,7 @@ class ContactsWidget(QWidget):
             peers = self.backend.network_monitor.get_peers()
             for p in peers:
                 h = p.get("hash", "")
-                if h in seen:
+                if h in seen or h in self._deleted_hashes:
                     continue
                 seen.add(h)
                 age = time.time() - p.get("last_seen", 0)
@@ -257,16 +264,17 @@ class ContactsWidget(QWidget):
                 })
         if self.backend.contact_manager:
             for c in self.backend.contact_manager.get_all():
-                if c.hash_hex not in seen:
-                    seen.add(c.hash_hex)
-                    age = time.time() - c.last_seen
-                    status = "online" if age < 300 else "offline"
-                    self.add_contact({
-                        "hash": c.hash_hex,
-                        "display_name": c.name,
-                        "status": status,
-                        "is_trusted": c.is_trusted,
-                    })
+                if c.hash_hex in seen or c.hash_hex in self._deleted_hashes:
+                    continue
+                seen.add(c.hash_hex)
+                age = time.time() - c.last_seen
+                status = "online" if age < 300 else "offline"
+                self.add_contact({
+                    "hash": c.hash_hex,
+                    "display_name": c.name,
+                    "status": status,
+                    "is_trusted": c.is_trusted,
+                })
         if not self.cards and self.backend.rns_node:
             self.add_contact({
                 "hash": self.backend.rns_node.get_identity_hash(),

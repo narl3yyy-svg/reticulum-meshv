@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QPushButton,
     QLabel, QLineEdit, QTextEdit, QScrollArea, QFrame, QSizePolicy,
-    QApplication
+    QApplication, QMenu
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QDateTime, QEvent
 from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
@@ -87,6 +87,7 @@ class ChatBubble(QFrame):
 
 class ConversationListItem(QFrame):
     selected = pyqtSignal(str)
+    delete_requested = pyqtSignal(str)
 
     def __init__(self, conv_id, display_name, last_message, timestamp, unread=0, parent=None):
         super().__init__(parent)
@@ -150,6 +151,20 @@ class ConversationListItem(QFrame):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self.conv_id)
+        super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{ background-color: {MeshTheme.SURFACE};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; padding: 4px; }}
+            QMenu::item {{ padding: 6px 20px; border-radius: 4px; color: {MeshTheme.TEXT}; }}
+            QMenu::item:selected {{ background-color: {MeshTheme.ACCENT}; color: white; }}
+        """)
+        delete_a = menu.addAction("Delete Conversation")
+        action = menu.exec(event.globalPos())
+        if action == delete_a:
+            self.delete_requested.emit(self.conv_id)
 
     def set_selected(self, sel):
         self._selected = sel
@@ -372,6 +387,7 @@ class MessagesWidget(QWidget):
         item = ConversationListItem(conv_id, display_name, "No messages yet",
                                     QDateTime.currentDateTime(), 0)
         item.selected.connect(self._select_conversation)
+        item.delete_requested.connect(self._delete_conversation)
         self.conversations[conv_id] = item
         self.conv_layout.insertWidget(self.conv_layout.count() - 1, item)
         self.conv_empty.setVisible(False)
@@ -412,6 +428,19 @@ class MessagesWidget(QWidget):
     def _filter_conversations(self, text):
         for conv_id, item in self.conversations.items():
             item.setVisible(text.lower() in item._display.lower())
+
+    def _delete_conversation(self, conv_id):
+        item = self.conversations.pop(conv_id, None)
+        if item:
+            self.conv_layout.removeWidget(item)
+            item.setParent(None)
+            item.deleteLater()
+        if self.current_conv_id == conv_id:
+            self.current_conv_id = None
+            self.chat_title.setText("Select a conversation")
+            self.chat_stack.setCurrentIndex(0)
+            self._load_messages(conv_id)
+        self.conv_empty.setVisible(len(self.conversations) == 0)
 
     def _new_conversation(self):
         from PyQt6.QtWidgets import QInputDialog
