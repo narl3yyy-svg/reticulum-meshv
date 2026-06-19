@@ -32,6 +32,7 @@ class ReticulumNode:
                 "reticulum-meshv",
                 "filetransfer"
             )
+            self.file_destination.set_proof_strategy(RNS.Destination.PROVE_ALL)
 
             # Register resource handler
             self.file_destination.set_packet_callback(self._packet_received)

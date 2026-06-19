@@ -99,6 +99,12 @@ class ContactCard(QFrame):
         if action == copy_a:
             QApplication.clipboard().setText(self.contact_data.get('hash', ''))
         elif action == delete_a:
+            parent_widget = self.parentWidget()
+            while parent_widget and not hasattr(parent_widget, 'cards'):
+                parent_widget = parent_widget.parentWidget()
+            if parent_widget and hasattr(parent_widget, 'cards'):
+                if self in parent_widget.cards:
+                    parent_widget.cards.remove(self)
             self.setParent(None)
             self.deleteLater()
 
@@ -222,9 +228,13 @@ class ContactsWidget(QWidget):
         self.contacts_empty.setVisible(len(self.cards) == 0)
 
     def _clear_grid(self):
-        for card in self.cards:
-            self.grid.removeWidget(card)
-            card.deleteLater()
+        for card in self.cards[:]:
+            try:
+                self.grid.removeWidget(card)
+                card.setParent(None)
+                card.deleteLater()
+            except RuntimeError:
+                pass
         self.cards = []
 
     def add_contact(self, data):

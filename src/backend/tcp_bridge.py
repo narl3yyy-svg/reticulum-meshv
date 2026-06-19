@@ -52,6 +52,9 @@ class BridgeClientSession:
         t = msg.get("type", "")
         if t == "hello":
             self.identity = msg.get("identity", "")
+            rns_identity = msg.get("rns_identity", "")
+            if rns_identity and self.identity != rns_identity:
+                self.identity = rns_identity
             self.send_msg({"type": "welcome", "server_identity": self.bridge.server_identity})
             self.bridge._on_hello(self)
         elif t == "message":
@@ -156,13 +159,14 @@ class TCPBridgeServer:
 
     def _on_message(self, session, to, text, timestamp):
         sender = session.identity[:16] if session.identity else session.addr[0]
-        if self.message_callback:
-            self.message_callback(session.identity, f"{text}", timestamp)
         if to and self.lxmf_messenger:
             try:
                 self.lxmf_messenger.send_message(to, text)
             except Exception as e:
                 print(f"[Bridge] LXMF relay failed: {e}")
+        else:
+            if self.message_callback:
+                self.message_callback(session.identity, f"{text}", timestamp)
 
     def _on_announce(self, session):
         pass

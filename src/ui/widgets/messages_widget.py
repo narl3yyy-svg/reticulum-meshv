@@ -224,15 +224,16 @@ class MessagesWidget(QWidget):
 
         search = QLineEdit()
         search.setPlaceholderText("Search conversations...")
-        search.setFixedHeight(38)
+        search.setFixedHeight(44)
         search.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
                 border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
-                padding: 8px 12px; font-size: 13px; margin: 8px 12px;
+                padding: 10px 14px; font-size: 15px; margin: 8px 12px;
+                font-weight: 500;
             }}
             QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
-            QLineEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
+            QLineEdit::placeholder {{ color: {MeshTheme.TEXT_MUTED}; font-size: 14px; }}
         """)
         search.textChanged.connect(self._filter_conversations)
         layout.addWidget(search)

@@ -98,20 +98,34 @@ class MeshNode:
 
     def _init_id(self):
         LOCAL.mkdir(parents=True, exist_ok=True)
-        p = LOCAL / "identity.txt"
-        if p.exists():
+        if _RNS:
+            p = LOCAL / "mobile_identity.key"
+            if p.exists():
+                try:
+                    i = _RNS.Identity.from_file(str(p))
+                    if i and i.hash:
+                        self.identity_hash = i.hash.hex()
+                        return
+                except:
+                    pass
+            i = _RNS.Identity()
+            i.to_file(str(p))
+            self.identity_hash = i.hash.hex()
+        else:
+            p = LOCAL / "identity.txt"
+            if p.exists():
+                try:
+                    v = p.read_text().strip()
+                    if len(v) == 64:
+                        self.identity_hash = v
+                        return
+                except:
+                    pass
+            self.identity_hash = os.urandom(32).hex()
             try:
-                v = p.read_text().strip()
-                if len(v) == 64:
-                    self.identity_hash = v
-                    return
+                p.write_text(self.identity_hash)
             except:
                 pass
-        self.identity_hash = os.urandom(32).hex()
-        try:
-            p.write_text(self.identity_hash)
-        except:
-            pass
 
     def _ensure_cfg(self, host, port):
         d = Path(self.cfg_dir)
@@ -230,7 +244,9 @@ loglevel = 3
                 rid = _RNS.Identity()
                 rid.hash = db
             if _LXMF:
-                r = _LXMF.LXMRouter(identity=self.identity)
+                if not hasattr(self, '_lxmf_router') or self._lxmf_router is None:
+                    self._lxmf_router = _LXMF.LXMRouter(identity=self.identity)
+                r = self._lxmf_router
                 dd = _RNS.Destination(rid, _RNS.Destination.OUT,
                                       _RNS.Destination.SINGLE, "lxmf", "delivery")
                 m = _LXMF.LXMessage(dd, self.identity, content=text.encode("utf-8"))
@@ -238,6 +254,7 @@ loglevel = 3
             else:
                 dd = _RNS.Destination(rid, _RNS.Destination.OUT,
                                       _RNS.Destination.SINGLE, "rmeshv", "msg")
+                dd.set_proof_strategy(_RNS.Destination.PROVE_ALL)
                 _RNS.Resource(text.encode("utf-8"), dd)
             cid = dest_hex
             if cid not in self.messages:
@@ -269,7 +286,10 @@ loglevel = 3
             s.connect((host, port))
             s.settimeout(None)
             self.bridge = {"sock": s, "running": True}
-            self._send_bridge({"type": "hello", "identity": self.identity_hash})
+            hello_msg = {"type": "hello", "identity": self.identity_hash}
+            if self.rns_enabled and self.identity:
+                hello_msg["rns_identity"] = self.identity.hash.hex()
+            self._send_bridge(hello_msg)
             t = threading.Thread(target=self._bridge_rx, daemon=True)
             t.start()
             # Try to read welcome
