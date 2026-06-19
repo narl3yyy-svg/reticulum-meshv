@@ -25,14 +25,6 @@ class LXMFMessenger:
         self.delivery_dest.set_proof_strategy(RNS.Destination.PROVE_ALL)
         self.router.register_delivery_callback(self._on_message)
 
-        self.source_dest = RNS.Destination(
-            identity,
-            RNS.Destination.OUT,
-            RNS.Destination.SINGLE,
-            "lxmf",
-            "delivery"
-        )
-
         self.message_callback: Optional[Callable] = None
         self.conversations: dict[str, list] = {}
 
@@ -87,7 +79,7 @@ class LXMFMessenger:
 
             message = LXMF.LXMessage(
                 dest,
-                self.source_dest,
+                self.delivery_dest,
                 content=text.encode("utf-8") if isinstance(text, str) else text,
                 title=title.encode("utf-8") if title else b"",
             )
@@ -123,7 +115,9 @@ class LXMFMessenger:
         try:
             name = app_data if app_data else self.display_name
             if self.delivery_dest:
-                self.delivery_dest.announce(name.encode("utf-8") if name else None)
+                self.delivery_dest.display_name = name
+            if self.router:
+                self.router.announce(destination_hash=self.delivery_dest.hash)
                 print(f"[LXMF] Announced as: {name}")
                 return True
         except Exception as e:

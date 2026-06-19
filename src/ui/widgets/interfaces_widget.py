@@ -240,6 +240,11 @@ class InterfacesWidget(QWidget):
         restart_group.setStyleSheet(group_style())
         restart_layout = QVBoxLayout()
 
+        restart_note = QLabel("Restart Application: full app restart (safest).\nRestart RNS: reinitializes Reticulum without closing the app (faster).")
+        restart_note.setWordWrap(True)
+        restart_note.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        restart_layout.addWidget(restart_note)
+
         restart_btn = QPushButton("Restart Application")
         restart_btn.setStyleSheet(f"""
             QPushButton {{ background-color: {MeshTheme.WARNING}; color: white; border: none;
@@ -248,6 +253,15 @@ class InterfacesWidget(QWidget):
         """)
         restart_btn.clicked.connect(self._restart_app)
         restart_layout.addWidget(restart_btn)
+
+        rns_btn = QPushButton("Restart RNS Only")
+        rns_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.SURFACE_LIGHT}; color: {MeshTheme.TEXT};
+                border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.BORDER_STRONG}; }}
+        """)
+        rns_btn.clicked.connect(self._restart_rns)
+        restart_layout.addWidget(rns_btn)
 
         restart_group.setLayout(restart_layout)
         layout.addWidget(restart_group)
@@ -339,3 +353,38 @@ class InterfacesWidget(QWidget):
                 os.execv(sys.executable, [sys.executable, "-m", "src.main"])
             except:
                 QApplication.quit()
+
+    def _restart_rns(self):
+        reply = QMessageBox.question(self, "Restart RNS",
+            "Restart Reticulum without closing the app?\nThis re-reads the config file.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            import RNS
+            import threading
+
+            if self.rns_node:
+                self.status_summary.setText("Restarting RNS...")
+                self.status_dot.set_color(MeshTheme.WARNING)
+                self.status_details.setPlainText("Reinitializing Reticulum...")
+
+                def do_restart():
+                    try:
+                        self.rns_node.reticulum = RNS.Reticulum(configdir=str(self.rns_node.rns_config_dir))
+                        self.rns_node.identity = self.rns_node._load_or_create_identity()
+                        if self.backend and hasattr(self.backend, 'lxmf_messenger') and self.backend.lxmf_messenger:
+                            display_name = self.backend.get_display_name() if hasattr(self.backend, 'get_display_name') else ""
+                            self.backend.lxmf_messenger.announce(display_name)
+                    except Exception as e:
+                        print(f"[RNS] Restart error: {e}")
+
+                t = threading.Thread(target=do_restart, daemon=True)
+                t.start()
+
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(3000, self._refresh_status)
+                QMessageBox.information(self, "Restarted", "RNS reinitialized. Refreshing status...")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not restart RNS: {e}")
