@@ -28,6 +28,16 @@ except ImportError:
     from toga.constants import COLUMN, ROW
 
 
+def log(*args):
+    """Log to Android logcat if available, else stdout."""
+    msg = " ".join(str(a) for a in args)
+    try:
+        from android import log as android_log
+        android_log.v("ReticulumMesh", msg)
+    except ImportError:
+        print(f"[RM] {msg}")
+
+
 def get_timestamp():
     from datetime import datetime
     return datetime.now().strftime("%H:%M")
@@ -46,21 +56,21 @@ class MobileReticulumNode:
             self._init_local()
 
     def _init_local(self):
-        print("[Mobile] Using local-only mode (RNS not available)")
+        log("Using local-only mode (RNS not available)")
         path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity_local.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             try:
                 self.identity_hash = path.read_text().strip()
                 if len(self.identity_hash) == 64:
-                    print(f"[Mobile] Loaded local identity: {self.identity_hash[:12]}...")
+                    log(f"Loaded local identity: {self.identity_hash[:12]}...")
                     return
             except:
                 pass
         self.identity_hash = os.urandom(32).hex()
         try:
             path.write_text(self.identity_hash)
-            print(f"[Mobile] Generated local identity: {self.identity_hash[:12]}...")
+            log(f"Generated local identity: {self.identity_hash[:12]}...")
         except:
             pass
 
@@ -77,9 +87,9 @@ class MobileReticulumNode:
                 pass
         except Exception as e:
             import traceback
-            print(f"[Mobile] RNS init error: {e}")
+            log(f"RNS init error: {e}")
             traceback.print_exc()
-            print("[Mobile] Falling back to local-only mode")
+            log("Falling back to local-only mode")
             self._init_local()
 
     def _load_rns_identity(self):
@@ -126,19 +136,17 @@ class MobileReticulumNode:
                     "announce"
                 )
                 dest.announce()
-                print("[Mobile] announce: OK")
+                log("announce: OK")
                 return True
             except Exception as e:
-                print(f"[Mobile] announce failed: {e}")
-                import traceback
-                traceback.print_exc()
+                log(f"announce failed: {e}")
                 return False
-        print("[Mobile] announce: local-only (no-op)")
+        log("announce: local-only (no-op)")
         return True
 
     def send_text(self, destination_hash, text):
         if not BACKEND_AVAILABLE or not self.identity:
-            print("[Mobile] send_text: RNS unavailable")
+            log("send_text: RNS unavailable")
             return False
         try:
             dest_bytes = bytes.fromhex(destination_hash)
@@ -350,7 +358,7 @@ class SettingsScreen(Box):
 
         self.add(make_label("Interfaces", size=16, margin_b=6))
         self.add(Label("AutoInterface: Enabled"))
-        self.add(make_label("Reticulum Mesh v0.2.0", size=10, margin_b=8))
+        self.add(make_label("Reticulum Mesh v1.0.0", size=10, margin_b=8))
 
     def announce(self, widget):
         if self.node:
@@ -360,31 +368,61 @@ class SettingsScreen(Box):
 class ReticulumMeshApp(App):
     def startup(self):
         self.main_window = MainWindow(title="Reticulum Mesh")
-        self.node = MobileReticulumNode()
 
         self.content_box = Box()
         self.content_box.style.direction = COLUMN
         self.content_box.style.flex = 1
 
-        self.screen_container = Box()
-        self.screen_container.style.direction = COLUMN
-        self.screen_container.style.flex = 1
+        self.node = None
+        self.initialized = False
 
-        nav_bar = Box()
-        nav_bar.style.direction = ROW
-        nav_bar.style.margin = 4
+        loading = Label("Starting Reticulum…")
+        loading.style.font_size = 16
+        loading.style.text_align = "center"
+        loading.style.flex = 1
+        self.content_box.add(loading)
 
-        for name, key in [("Chat", "chat"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
-            btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
-            btn.style.flex = 1
-            nav_bar.add(btn)
-
-        self.content_box.add(self.screen_container)
-        self.content_box.add(nav_bar)
         self.main_window.content = self.content_box
         self.main_window.show()
 
-        self.show_screen("chat")
+        threading.Thread(target=self._init_background, daemon=True).start()
+        self._check_init()
+
+    def _init_background(self):
+        try:
+            log("Starting background RNS init")
+            self.node = MobileReticulumNode()
+            log(f"RNS init done, identity: {self.node.get_identity_hash()[:16]}...")
+        except Exception as e:
+            import traceback
+            log(f"Background init error: {e}")
+            log(traceback.format_exc())
+        finally:
+            self.initialized = True
+
+    def _check_init(self):
+        if self.initialized:
+            log("Init complete, building UI")
+            self.content_box.clear()
+
+            self.screen_container = Box()
+            self.screen_container.style.direction = COLUMN
+            self.screen_container.style.flex = 1
+
+            nav_bar = Box()
+            nav_bar.style.direction = ROW
+            nav_bar.style.margin = 4
+
+            for name, key in [("Chat", "chat"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
+                btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
+                btn.style.flex = 1
+                nav_bar.add(btn)
+
+            self.content_box.add(self.screen_container)
+            self.content_box.add(nav_bar)
+            self.show_screen("chat")
+        else:
+            threading.Timer(0.1, self._check_init).start()
 
     def show_screen(self, screen_name):
         self.screen_container.clear()
