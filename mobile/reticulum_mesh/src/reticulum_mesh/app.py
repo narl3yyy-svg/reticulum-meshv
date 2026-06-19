@@ -29,7 +29,6 @@ except ImportError:
 
 
 def log(*args):
-    """Log to Android logcat if available, else stdout."""
     msg = " ".join(str(a) for a in args)
     try:
         from android import log as android_log
@@ -358,7 +357,7 @@ class SettingsScreen(Box):
 
         self.add(make_label("Interfaces", size=16, margin_b=6))
         self.add(Label("AutoInterface: Enabled"))
-        self.add(make_label("Reticulum Mesh v1.0.0", size=10, margin_b=8))
+        self.add(make_label("RMESHV v1.0.0", size=10, margin_b=8))
 
     def announce(self, widget):
         if self.node:
@@ -368,61 +367,45 @@ class SettingsScreen(Box):
 class ReticulumMeshApp(App):
     def startup(self):
         self.main_window = MainWindow(title="Reticulum Mesh")
+        self.node = None
+        self.init_complete = False
 
         self.content_box = Box()
         self.content_box.style.direction = COLUMN
         self.content_box.style.flex = 1
 
-        self.node = None
-        self.initialized = False
+        self.screen_container = Box()
+        self.screen_container.style.direction = COLUMN
+        self.screen_container.style.flex = 1
 
-        loading = Label("Starting Reticulum…")
-        loading.style.font_size = 16
-        loading.style.text_align = "center"
-        loading.style.flex = 1
-        self.content_box.add(loading)
+        nav_bar = Box()
+        nav_bar.style.direction = ROW
+        nav_bar.style.margin = 4
 
+        for name, key in [("Chat", "chat"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
+            btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
+            btn.style.flex = 1
+            nav_bar.add(btn)
+
+        self.content_box.add(self.screen_container)
+        self.content_box.add(nav_bar)
         self.main_window.content = self.content_box
         self.main_window.show()
 
+        self.show_screen("chat")
+
         threading.Thread(target=self._init_background, daemon=True).start()
-        self._check_init()
 
     def _init_background(self):
         try:
             log("Starting background RNS init")
             self.node = MobileReticulumNode()
+            self.init_complete = True
             log(f"RNS init done, identity: {self.node.get_identity_hash()[:16]}...")
         except Exception as e:
             import traceback
             log(f"Background init error: {e}")
             log(traceback.format_exc())
-        finally:
-            self.initialized = True
-
-    def _check_init(self):
-        if self.initialized:
-            log("Init complete, building UI")
-            self.content_box.clear()
-
-            self.screen_container = Box()
-            self.screen_container.style.direction = COLUMN
-            self.screen_container.style.flex = 1
-
-            nav_bar = Box()
-            nav_bar.style.direction = ROW
-            nav_bar.style.margin = 4
-
-            for name, key in [("Chat", "chat"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
-                btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
-                btn.style.flex = 1
-                nav_bar.add(btn)
-
-            self.content_box.add(self.screen_container)
-            self.content_box.add(nav_bar)
-            self.show_screen("chat")
-        else:
-            threading.Timer(0.1, self._check_init).start()
 
     def show_screen(self, screen_name):
         self.screen_container.clear()

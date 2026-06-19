@@ -1,17 +1,17 @@
 [project]
-name = "reticulum-mesh-mobile"
+name = "rmeshv-mobile"
 version = "1.0.0"
-description = "Reticulum-based mesh app for Android"
+description = "RMESHV mesh networking app for Android"
 license = "GPL-3.0-or-later"
 
 [tool.briefcase]
-project_name = "Reticulum Mesh"
+project_name = "RMESHV"
 bundle = "com.narl3y.reticulummesh"
 version = "1.0.0"
 
 [tool.briefcase.app.reticulum_mesh]
-formal_name = "Reticulum Mesh"
-description = "Reticulum-based mesh app for Android"
+formal_name = "RMESHV"
+description = "RMESHV mesh networking app for Android"
 icon = "src/reticulum_mesh/resources/icon"
 sources = ["src/reticulum_mesh"]
 requires = [
