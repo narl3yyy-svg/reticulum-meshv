@@ -207,13 +207,13 @@ class MessagesScreen(Box):
         self.add_bubble("Announce yourself first for discoverability.", is_sent=False)
 
     def start_chat(self, widget):
-        dest = self.dest_input.value.strip().lower().replace(" ", "").replace("-", "")
+        dest = "".join(c for c in self.dest_input.value.strip() if c in "0123456789abcdefABCDEF").lower()
         if len(dest) == 64:
             self.current_dest = dest
             self.add_bubble(f"Chat started with {dest[:12]}...", is_sent=False)
             self.status_label.text = "Chat active."
         else:
-            self.add_bubble("Hash must be 64 characters.", is_sent=False)
+            self.add_bubble(f"Hash must be 64 hex chars, got {len(dest)}.", is_sent=False)
 
     def add_bubble(self, text, is_sent=True):
         box = Box()
@@ -287,8 +287,9 @@ class NetworkScreen(Box):
 
         self.add(make_label("Network", size=20, margin_b=8))
 
-        h = self.node.get_identity_hash() if self.node else ""
-        self.add(make_label(f"Identity:\n{h[:32] if h else 'Not loaded'}...", size=11, margin_b=12))
+        h = self.node.get_identity_hash() if self.node and self.node.identity else ""
+        label = f"Identity:\n{h[:32]}..." if h else "Identity:\nRNS not available"
+        self.add(make_label(label, size=11, margin_b=12))
 
         refresh_btn = Button("Refresh", on_press=self.refresh_network)
         self.add(refresh_btn)
@@ -312,8 +313,8 @@ class SettingsScreen(Box):
         self.node = node
         self.add(make_label("Settings", size=20, margin_b=10))
 
-        h = self.node.get_identity_hash() if self.node else ""
-        self.add(make_label(f"Hash:\n{h}" if h else "Not loaded", size=11, margin_b=12))
+        h = self.node.get_identity_hash() if self.node and self.node.identity else ""
+        self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nRNS not available", size=11, margin_b=12))
 
         announce_btn = Button("Announce Myself", on_press=self.announce)
         self.add(announce_btn)
