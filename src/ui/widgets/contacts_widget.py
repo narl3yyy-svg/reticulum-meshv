@@ -1,13 +1,12 @@
-"""Contacts tab with Announce button and clearer peer discovery."""
+"""Enhanced Contacts widget with persistent storage and discovery."""
 
 import time
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QListWidget, QPushButton, 
-    QHBoxLayout, QInputDialog, QMessageBox, QMenu, QGroupBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QListWidget, QListWidgetItem, QInputDialog,
+    QMessageBox, QGroupBox, QMenu, QApplication
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QApplication
 
 
 class ContactsWidget(QWidget):
@@ -15,148 +14,190 @@ class ContactsWidget(QWidget):
         super().__init__()
         self.backend = backend
         self.rns_node = backend.rns_node
-        self.contacts = []
+        self.contact_mgr = backend.contact_manager
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(12)
 
-        # === Announce Section (moved here from Interfaces) ===
+        title = QLabel("Contacts")
+        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        layout.addWidget(title)
+
         announce_group = QGroupBox("Network Presence")
         announce_layout = QVBoxLayout()
 
         announce_btn = QPushButton("Announce Myself on Network")
         announce_btn.setStyleSheet("font-weight: bold;")
-        announce_btn.clicked.connect(self._announce_myself)
+        announce_btn.clicked.connect(self._announce)
         announce_layout.addWidget(announce_btn)
 
-        announce_info = QLabel("This makes you visible to other nodes so they can discover you.")
+        announce_info = QLabel("Makes you visible to other nodes via LXMF and Reticulum")
         announce_info.setStyleSheet("color: #888; font-size: 11px;")
         announce_layout.addWidget(announce_info)
 
         announce_group.setLayout(announce_layout)
         layout.addWidget(announce_group)
 
-        # === Discovered Peers ===
-        discovered_group = QGroupBox("Discovered Peers (from network announcements)")
-        discovered_layout = QVBoxLayout()
+        search_group = QGroupBox("Search Contacts")
+        search_layout = QVBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Type to search by name or hash...")
+        self.search_input.textChanged.connect(self._refresh_lists)
+        search_layout.addWidget(self.search_input)
+        search_group.setLayout(search_layout)
+        layout.addWidget(search_group)
+
+        disc_group = QGroupBox("Discovered Peers")
+        disc_layout = QVBoxLayout()
 
         self.discovered_list = QListWidget()
         self.discovered_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.discovered_list.customContextMenuRequested.connect(self._show_discovered_menu)
-        discovered_layout.addWidget(self.discovered_list)
+        disc_layout.addWidget(self.discovered_list)
 
-        refresh_btn = QPushButton("Refresh Discovered Peers")
-        refresh_btn.clicked.connect(self._refresh_discovered)
-        discovered_layout.addWidget(refresh_btn)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self._refresh_lists)
+        disc_layout.addWidget(refresh_btn)
 
-        discovered_group.setLayout(discovered_layout)
-        layout.addWidget(discovered_group)
+        disc_group.setLayout(disc_layout)
+        layout.addWidget(disc_group)
 
-        # === My Contacts ===
-        manual_group = QGroupBox("My Contacts")
-        manual_layout = QVBoxLayout()
+        my_group = QGroupBox("My Contacts")
+        my_layout = QVBoxLayout()
 
         self.contacts_list = QListWidget()
         self.contacts_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.contacts_list.customContextMenuRequested.connect(self._show_contacts_menu)
-        manual_layout.addWidget(self.contacts_list)
+        my_layout.addWidget(self.contacts_list)
 
         add_btn = QPushButton("Add Contact Manually")
         add_btn.clicked.connect(self._add_contact)
-        manual_layout.addWidget(add_btn)
+        my_layout.addWidget(add_btn)
 
-        manual_group.setLayout(manual_layout)
-        layout.addWidget(manual_group)
+        my_group.setLayout(my_layout)
+        layout.addWidget(my_group)
 
         self.timer = QTimer()
-        self.timer.timeout.connect(self._refresh_discovered)
-        self.timer.start(10000)
+        self.timer.timeout.connect(self._refresh_lists)
+        self.timer.start(15000)
 
-        self._refresh_discovered()
+        self._refresh_lists()
 
-    def _announce_myself(self):
-        if self.rns_node and self.rns_node.announce_myself():
+    def _announce(self):
+        announced = False
+        if self.backend.lxmf_messenger:
+            announced = self.backend.lxmf_messenger.announce()
+        if not announced and self.rns_node:
+            announced = self.rns_node.announce_myself()
+
+        if announced:
             QMessageBox.information(self, "Announced", "You are now visible on the network.")
         else:
-            QMessageBox.warning(self, "Error", "Could not announce (Reticulum not ready).")
+            QMessageBox.warning(self, "Error", "Could not announce")
 
-    def _refresh_discovered(self):
+    def _refresh_lists(self):
+        query = self.search_input.text().strip().lower()
+
         self.discovered_list.clear()
-        for h, info in self.rns_node.get_discovered_peers():
-            display = f"{info.get('name', h[:12])} — last seen {int(time.time() - info.get('last_seen', 0))}s ago"
-            self.discovered_list.addItem(display)
+        peers = self.rns_node.get_discovered_peers() if self.rns_node else []
+        for h, info in peers:
+            if query and query not in h[:12]:
+                continue
+            display = f"{info.get('name', h[:12])} — {int(time.time() - info.get('last_seen', 0))}s ago"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, h)
+            self.discovered_list.addItem(item)
+
+        self.contacts_list.clear()
+        contacts = self.contact_mgr.get_all() if self.contact_mgr else []
+        for c in contacts:
+            if query and query not in c.name.lower() and query not in c.hash_hex.lower():
+                continue
+            display = f"{c.name} — {c.hash_hex[:12]}..."
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, c.hash_hex)
+            item.setData(Qt.ItemDataRole.ToolTipRole, f"Hash: {c.hash_hex}\nLast seen: {c.last_seen}")
+            self.contacts_list.addItem(item)
 
     def _show_discovered_menu(self, pos):
         item = self.discovered_list.itemAt(pos)
         if not item:
             return
-        row = self.discovered_list.row(item)
-        peers = self.rns_node.get_discovered_peers()
-        if row >= len(peers):
-            return
-
-        h, info = peers[row]
+        hash_hex = item.data(Qt.ItemDataRole.UserRole)
 
         menu = QMenu(self)
-        add_action = QAction("Add to My Contacts", self)
-        add_action.triggered.connect(lambda: self._add_discovered_to_contacts(h, info))
-        menu.addAction(add_action)
+        add_action = menu.addAction("Add to My Contacts")
+        add_action.triggered.connect(lambda: self._add_discovered(hash_hex))
 
-        copy_action = QAction("Copy Hash", self)
-        copy_action.triggered.connect(lambda: self._copy_hash(h))
-        menu.addAction(copy_action)
+        copy_action = menu.addAction("Copy Hash")
+        copy_action.triggered.connect(lambda: self._copy_hash(hash_hex))
 
         menu.exec(self.discovered_list.viewport().mapToGlobal(pos))
 
-    def _add_discovered_to_contacts(self, h, info):
-        name, ok = QInputDialog.getText(self, "Add Contact", "Name for this peer:", text=info.get('name', h[:12]))
+    def _add_discovered(self, hash_hex):
+        name, ok = QInputDialog.getText(self, "Add Contact", "Name:", text=hash_hex[:12])
         if ok and name:
-            self.contacts.append((name, h))
-            self._refresh_contacts_list()
+            self.contact_mgr.add_or_update(hash_hex, name=name)
+            self._refresh_lists()
             QMessageBox.information(self, "Added", f"Added {name}")
 
     def _copy_hash(self, h):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(h)
-        QMessageBox.information(self, "Copied", "Hash copied!")
+        QApplication.clipboard().setText(h)
 
     def _add_contact(self):
         name, ok = QInputDialog.getText(self, "Add Contact", "Contact name:")
         if not ok or not name:
             return
-        hash_str, ok = QInputDialog.getText(self, "Add Contact", "Identity hash:")
+        hash_str, ok = QInputDialog.getText(self, "Add Contact", "Identity hash (64 hex chars):")
         if ok and hash_str:
-            self.contacts.append((name.strip(), hash_str.strip()))
-            self._refresh_contacts_list()
-
-    def _refresh_contacts_list(self):
-        self.contacts_list.clear()
-        for name, h in self.contacts:
-            display = f"{name} — {h[:12]}...{h[-4:] if len(h) > 16 else h}"
-            self.contacts_list.addItem(display)
+            hash_str = hash_str.strip().lower()
+            if len(hash_str) == 64:
+                self.contact_mgr.add_or_update(hash_str, name=name)
+                self._refresh_lists()
+            else:
+                QMessageBox.warning(self, "Invalid", "Hash must be 64 hex characters.")
 
     def _show_contacts_menu(self, pos):
         item = self.contacts_list.itemAt(pos)
         if not item:
             return
-        row = self.contacts_list.row(item)
-        if row < 0 or row >= len(self.contacts):
-            return
+        hash_hex = item.data(Qt.ItemDataRole.UserRole)
 
         menu = QMenu(self)
-        copy_action = QAction("Copy Hash", self)
-        copy_action.triggered.connect(lambda: self._copy_hash(self.contacts[row][1]))
-        menu.addAction(copy_action)
+        copy_action = menu.addAction("Copy Hash")
+        copy_action.triggered.connect(lambda: self._copy_hash(hash_hex))
 
-        delete_action = QAction("Delete Contact", self)
-        delete_action.triggered.connect(lambda: self._delete_contact(row))
-        menu.addAction(delete_action)
+        chat_action = menu.addAction("Start Chat")
+        chat_action.triggered.connect(lambda: self._start_chat_with(hash_hex))
+
+        rename_action = menu.addAction("Rename")
+        rename_action.triggered.connect(lambda: self._rename_contact(hash_hex))
+
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(lambda: self._delete_contact(hash_hex))
 
         menu.exec(self.contacts_list.viewport().mapToGlobal(pos))
 
-    def _delete_contact(self, row):
-        if 0 <= row < len(self.contacts):
-            name, _ = self.contacts.pop(row)
-            self._refresh_contacts_list()
-            QMessageBox.information(self, "Deleted", f"Removed {name}")
+    def _start_chat_with(self, hash_hex):
+        mw = self.backend.main_window
+        if mw:
+            mw.dest_input.setText(hash_hex)
+            mw.stack.setCurrentIndex(0)
+
+    def _rename_contact(self, hash_hex):
+        c = self.contact_mgr.get(hash_hex)
+        if not c:
+            return
+        name, ok = QInputDialog.getText(self, "Rename", "New name:", text=c.name)
+        if ok and name:
+            self.contact_mgr.add_or_update(hash_hex, name=name)
+            self._refresh_lists()
+
+    def _delete_contact(self, hash_hex):
+        c = self.contact_mgr.get(hash_hex)
+        if c:
+            reply = QMessageBox.question(self, "Delete", f"Delete {c.name}?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.contact_mgr.remove(hash_hex)
+                self._refresh_lists()

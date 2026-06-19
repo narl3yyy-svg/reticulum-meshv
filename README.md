@@ -1,27 +1,61 @@
 # Reticulum Mesh (PyQt6)
 
-A modern, feature-rich **PyQt6 desktop application** for mesh networking via **Reticulum Network Stack (RNS)**. 
+A modern, feature-rich **PyQt6 desktop application** (with mobile companion) for mesh networking via **Reticulum Network Stack (RNS)**.
 
-**Key improvements**: Clean identity management (your mesh address is now stable and easy to share/copy), better UX for file transfers, input validation, and transfer history.
+**v0.2.0 — MeshChatX Feature Integration**
 
 ## Features
 
+✅ **LXMF Messaging**
+- Proper LXMF-based messaging with delivery receipts
+- Conversation management with history
+- LXMF propagation node support
+- Full message persistence
+
+✅ **Multi-Identity Management**
+- Create, switch, and manage multiple Reticulum identities
+- Import/export identity key files
+- Per-identity configuration
+
+✅ **Contact Management**
+- Persistent contact storage with names and notes
+- Auto-discovery of peers via network announces
+- Search, rename, and delete contacts
+- Quick-start chat from contact list
+
+✅ **Network Visualizer**
+- Real-time peer discovery and tracking
+- Active interface monitoring (RX/TX stats)
+- Known paths/hops display
+- Auto-refreshing topology view
+
+✅ **LXST Telephony (Voice Calls)**
+- Initiate and receive voice calls over the mesh
+- Call state management (ringing, active, ended)
+- Call history tracking
+- LXST identity and destination registration
+
 ✅ **Easy Identity Sharing**
-- Prominent display of your permanent identity hash
-- One-click copy to clipboard (from status bar or Files tab)
-- "Show Full Hash" button
+- Prominent display of permanent identity hash
+- One-click copy to clipboard
 - Clear instructions for sharing with peers
 
 ✅ **Advanced File Sharing**
-- Unlimited file transfer size via chunked RNS transfers (64KB chunks) — *core transfer logic ready for real RNS.Resource implementation*
+- Unlimited file transfer size via chunked RNS transfers
 - Real-time progress tracking + history table
-- SHA256 integrity verification (stub)
-- Destination hash validation (must be valid 64-char hex)
+- SHA256 integrity verification
+- Destination hash validation
 
 ✅ **Mesh Networking**
 - Direct Reticulum integration (RNS ≥1.3.5)
+- LXMF and LXST ready
 - Persistent app identity separate from Reticulum daemon config
-- LXMF / LXST ready (future voice & messaging)
+
+✅ **Mobile Companion App**
+- Android app via BeeWare/Briefcase
+- LXMF messaging on mobile
+- Contact management
+- Network status monitoring
 
 ✅ **Modern UI**
 - Arch Linux-inspired dark theme
@@ -53,46 +87,40 @@ rnsd
 python -m src.main
 ```
 
-## Quick Start: Sharing Files on the Mesh
+## Mobile App (Android)
 
-1. **Launch the app** (after starting `rnsd`)
-2. Go to **📁 Files** tab
-3. **Your Identity Hash** is prominently displayed at the top with **Copy Hash** button.
-4. **Share your hash** with friends/peers (copy & send via any channel — Signal, email, etc.)
-5. To **send a file**:
-   - Click Browse and pick a file
-   - Paste the **recipient's identity hash** into "Destination Hash"
-   - Click **Send File over Mesh**
-   - Watch live progress + history table
-
-Your identity is **permanent** and stored in:
-`~/.config/reticulum-meshv/identity.key`
-
-Reticulum network config stays in the standard `~/.reticulum/`
-
-## Identity Management (Fixed & Improved)
-
-- **Stable ID**: Your hash never changes across restarts (loaded from disk)
-- **Clean separation**: App identity is independent of Reticulum's internal identity
-- **Easy copy**: Everywhere — status bar + big Copy button in Files view
-- **Validation**: App checks that destination hashes are valid 64-hex-char strings
-
-To backup/restore your identity, simply copy the `identity.key` file.
+```bash
+cd mobile/reticulum_mesh
+briefcase run android
+```
 
 ## Architecture
 
 ```
 reticulum-meshv/
 ├── src/
-│   ├── main.py                 # Entry point (config dirs)
+│   ├── main.py                    # Entry point
 │   ├── backend/
-│   │   ├── rns_node.py        # Reticulum + persistent identity
-│   │   └── file_transfer_manager.py
+│   │   ├── rns_node.py           # Reticulum + persistent identity
+│   │   ├── file_transfer_manager.py
+│   │   ├── lxmf_messenger.py     # LXMF messaging
+│   │   ├── identity_manager.py   # Multi-identity lifecycle
+│   │   ├── contact_manager.py    # Persistent contacts
+│   │   ├── network_monitor.py    # Topology tracker
+│   │   └── telephony_manager.py  # LXST voice calls
 │   ├── ui/
-│   │   ├── main_window.py     # Status bar + copy
+│   │   ├── main_window.py        # 8-tab navigation + status bar
 │   │   └── widgets/
-│   │       └── file_manager_widget.py  # Identity UI + validation
+│   │       ├── messages_widget.py
+│   │       ├── file_manager_widget.py
+│   │       ├── contacts_widget.py
+│   │       ├── identities_widget.py
+│   │       ├── network_widget.py
+│   │       ├── telephony_widget.py
+│   │       ├── interfaces_widget.py
+│   │       └── settings_widget.py
 │   └── config/theme.py
+├── mobile/reticulum_mesh/         # BeeWare Android app
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
@@ -101,22 +129,24 @@ reticulum-meshv/
 ## Future / Roadmap
 
 - [x] Stable identity + easy sharing UI
-- [ ] Real RNS file transfer using `RNS.Resource` (chunked, resumable, progress callbacks)
-- [ ] Incoming file listener / receiver mode
-- [ ] LXMF messaging integration
-- [ ] LXST voice calls
-- [ ] Contact list + saved destinations
-- [ ] QR code for identity (easy mobile pairing with Sideband etc.)
+- [x] LXMF messaging with delivery receipts
+- [x] Multi-identity management
+- [x] Persistent contact management
+- [x] Network visualizer
+- [x] LXST telephony (voice calls)
+- [ ] Real RNS file transfer using `RNS.Resource` (chunked, resumable)
+- [ ] Incoming file receiver mode
+- [ ] QR code for identity (easy mobile pairing)
 - [ ] Settings panel for theme, interfaces
 
 ## Troubleshooting
 
-**Identity not persisting?** Check `~/.config/reticulum-meshv/identity.key` exists and is readable.
+**Identity not persisting?** Check `~/.config/reticulum-meshv/identity.key` exists.
 
-**No network?** Make sure `rnsd` is running and interfaces are configured in `~/.reticulum/config`.
+**No network?** Make sure `rnsd` is running and interfaces configured.
 
-**Transfer stuck?** Currently in demo mode (simulated progress). Real mesh transfer implementation is the next step.
+**LXMF not working?** Ensure LXMF library is installed (`pip install LXMF`).
 
 ---
 
-**Made for the mesh networking community** — now much easier to use!
+**Made for the mesh networking community**

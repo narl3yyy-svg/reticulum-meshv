@@ -1,7 +1,7 @@
 [tool.briefcase]
 project_name = "Reticulum Mesh"
 bundle = "com.narl3y.reticulummesh"
-version = "0.1.0"
+version = "0.2.0"
 
 [tool.briefcase.app.reticulum_mesh]
 formal_name = "Reticulum Mesh"

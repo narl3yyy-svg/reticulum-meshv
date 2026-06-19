@@ -1,20 +1,24 @@
-"""Reticulum Mesh Mobile App - More complete and less broken version."""
+"""Reticulum Mesh Mobile App - Enhanced edition."""
 
 import sys
+import threading
 from pathlib import Path
 
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-    from src.backend import ReticulumNode
+    from src.backend import ReticulumNode, LXMFMessenger, ContactManager
     import RNS
     BACKEND_AVAILABLE = True
-except Exception:
+except Exception as e:
+    print(f"Backend import error: {e}")
     BACKEND_AVAILABLE = False
     ReticulumNode = None
+    LXMFMessenger = None
+    ContactManager = None
     RNS = None
 
 
-from toga import App, MainWindow, Box, Label, Button, ScrollContainer, TextInput, Switch
+from toga import App, MainWindow, Box, Label, Button, ScrollContainer, TextInput, Switch, Selection
 try:
     from toga.style import Pack
     from toga.constants import COLUMN, ROW
@@ -44,23 +48,25 @@ class ChatBubble(Box):
 
 
 class MessagesScreen(Box):
-    def __init__(self, rns_node=None):
+    def __init__(self, app_ref):
         super().__init__(style=Pack(direction=COLUMN, flex=1, margin=8))
-
-        self.rns_node = rns_node
+        self.app_ref = app_ref
+        self.rns_node = app_ref.rns_node
+        self.lxmf = app_ref.lxmf_messenger
+        self.contact_mgr = app_ref.contact_manager
         self.current_dest = ""
 
         self.add(Label("Messages", style=Pack(font_size=20, margin_bottom=6)))
 
         dest_row = Box(style=Pack(direction=ROW, margin_bottom=6))
         dest_row.add(Label("To:", style=Pack(margin_right=6)))
-        self.dest_input = TextInput(placeholder="64-char destination hash", style=Pack(flex=1))
-        start_btn = Button("Start Chat", on_press=self.start_chat, style=Pack(width=90))
+        self.dest_input = TextInput(placeholder="64-char hash", style=Pack(flex=1))
+        start_btn = Button("Chat", on_press=self.start_chat, style=Pack(width=70))
         dest_row.add(self.dest_input)
         dest_row.add(start_btn)
         self.add(dest_row)
 
-        self.status_label = Label("Enter the other device's full 64-char hash above.", style=Pack(font_size=11, margin_bottom=8))
+        self.status_label = Label("Enter a destination hash above.", style=Pack(font_size=11, margin_bottom=8))
         self.add(self.status_label)
 
         self.scroll = ScrollContainer(style=Pack(flex=1))
@@ -75,16 +81,16 @@ class MessagesScreen(Box):
         input_row.add(send_btn)
         self.add(input_row)
 
-        self.add_bubble("Both devices should announce first for best results.", is_sent=False)
+        self.add_bubble("Announce yourself first for discoverability.", is_sent=False)
 
     def start_chat(self, widget):
         dest = self.dest_input.value.strip().lower().replace(" ", "").replace("-", "")
         if len(dest) == 64:
             self.current_dest = dest
             self.add_bubble(f"Chat started with {dest[:12]}...", is_sent=False)
-            self.status_label.text = "Chat active. Send messages below."
+            self.status_label.text = "Chat active."
         else:
-            self.add_bubble("Hash must be exactly 64 characters long.", is_sent=False)
+            self.add_bubble("Hash must be 64 characters.", is_sent=False)
 
     def add_bubble(self, text: str, is_sent: bool = True):
         bubble = ChatBubble(text, is_sent=is_sent, timestamp=get_timestamp())
@@ -92,93 +98,171 @@ class MessagesScreen(Box):
 
     def send_message(self, widget):
         if not self.current_dest:
-            self.add_bubble("Please start a chat first.", is_sent=False)
+            self.add_bubble("Start a chat first.", is_sent=False)
             return
-
         text = self.input.value.strip()
         if not text:
             return
-
         self.add_bubble(text, is_sent=True)
         self.input.value = ""
 
-        if BACKEND_AVAILABLE and self.rns_node and RNS:
+        sent = False
+        if self.lxmf:
+            sent = self.lxmf.send_message(self.current_dest, text)
+        if not sent and self.rns_node and RNS:
             try:
                 dest_bytes = bytes.fromhex(self.current_dest)
                 remote_id = RNS.Identity.recall(dest_bytes)
-
                 if remote_id:
                     destination = RNS.Destination(remote_id, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
                 else:
                     destination = RNS.Destination(self.rns_node.identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
                     destination.hash = dest_bytes
-
                 RNS.Resource(text.encode("utf-8"), destination)
-                print("[Mobile] Message sent via Reticulum")
-            except Exception as e:
-                print(f"[Mobile] Send failed: {e}")
-                self.add_bubble("Send failed (see logs).", is_sent=False)
-        else:
-            print(f"[Mobile] Backend not ready. Message: {text}")
+                sent = True
+            except:
+                pass
+
+        if not sent:
+            self.add_bubble("Send failed", is_sent=False)
 
 
 class FilesScreen(Box):
-    def __init__(self):
+    def __init__(self, app_ref):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
         self.add(Label("Files", style=Pack(font_size=20, margin_bottom=8)))
-        self.add(Label("File transfer coming soon."))
+        self.add(Label("File transfers via Reticulum"))
+        self.add(Label("Coming in next update: browse, send, receive files."))
 
 
 class ContactsScreen(Box):
-    def __init__(self):
+    def __init__(self, app_ref):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
+        self.app_ref = app_ref
+        self.contact_mgr = app_ref.contact_manager
+        self.rns_node = app_ref.rns_node
+
         self.add(Label("Contacts", style=Pack(font_size=20, margin_bottom=8)))
-        self.add(Label("Discovered peers will appear here."))
+
+        announce_btn = Button("Announce Myself", on_press=self.announce)
+        self.add(announce_btn)
+
+        self.status = Label("")
+        self.add(self.status)
+
+        self.add(Label("\nDiscovered Peers:", style=Pack(font_size=14, margin_top=8)))
+        self.peer_label = Label("(refresh to see peers)")
+        self.add(self.peer_label)
+
+        refresh_btn = Button("Refresh", on_press=self.refresh)
+        self.add(refresh_btn)
+
+        self.add(Label("\nSaved Contacts:", style=Pack(font_size=14, margin_top=8)))
+        self.contact_label = Label("(no saved contacts)")
+        self.add(self.contact_label)
+
+        self.refresh(None)
+
+    def announce(self, widget):
+        announced = False
+        if hasattr(self.app_ref, 'lxmf_messenger') and self.app_ref.lxmf_messenger:
+            announced = self.app_ref.lxmf_messenger.announce()
+        if not announced and self.rns_node:
+            announced = self.rns_node.announce_myself()
+        self.status.text = "Announced!" if announced else "Announce failed"
+
+    def refresh(self, widget):
+        peers = self.rns_node.get_discovered_peers() if self.rns_node else []
+        if peers:
+            self.peer_label.text = "\n".join([f"{h[:12]}..." for h, _ in peers[:5]])
+        else:
+            self.peer_label.text = "No peers discovered yet"
+
+        contacts = self.contact_mgr.get_all() if self.contact_mgr else []
+        if contacts:
+            self.contact_label.text = "\n".join([f"{c.name} ({c.hash_hex[:12]}...)" for c in contacts[:5]])
+        else:
+            self.contact_label.text = "No saved contacts"
+
+
+class NetworkScreen(Box):
+    def __init__(self, app_ref):
+        super().__init__(style=Pack(direction=COLUMN, margin=10))
+        self.app_ref = app_ref
+        self.rns_node = app_ref.rns_node
+
+        self.add(Label("Network", style=Pack(font_size=20, margin_bottom=8)))
+
+        identity_text = "Not loaded"
+        if self.rns_node and hasattr(self.rns_node, "get_identity_hash"):
+            try:
+                h = self.rns_node.get_identity_hash()
+                if h:
+                    identity_text = f"Identity:\n{h[:32]}..."
+            except:
+                pass
+
+        self.add(Label(identity_text, style=Pack(font_size=11, margin_bottom=12)))
+
+        refresh_btn = Button("Refresh Status", on_press=self.refresh)
+        self.add(refresh_btn)
+
+        self.status_label = Label("")
+        self.add(self.status_label)
+
+        self.refresh(None)
+
+    def refresh(self, widget):
+        lines = []
+        if self.rns_node:
+            peers = self.rns_node.get_discovered_peers()
+            lines.append(f"Discovered peers: {len(peers)}")
+            if hasattr(self.rns_node, 'reticulum') and self.rns_node.reticulum:
+                ifaces = len(getattr(self.rns_node.reticulum, 'interfaces', []))
+                lines.append(f"Active interfaces: {ifaces}")
+            lines.append(f"Identity hash length: {self.rns_node.hash_length}")
+        self.status_label.text = "\n".join(lines) if lines else "No network info"
+        self.refresh(None)
 
 
 class SettingsScreen(Box):
-    def __init__(self, rns_node=None):
+    def __init__(self, app_ref):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
-
-        self.rns_node = rns_node
+        self.app_ref = app_ref
+        self.rns_node = app_ref.rns_node
 
         self.add(Label("Settings", style=Pack(font_size=20, margin_bottom=10)))
 
-        # Identity
-        identity_text = "Your Identity Hash:\n(Not loaded - backend failed to start)"
-        if rns_node and hasattr(rns_node, "get_identity_hash"):
+        identity_text = "Your Identity Hash:\n(Not loaded)"
+        if self.rns_node and hasattr(self.rns_node, "get_identity_hash"):
             try:
-                h = rns_node.get_identity_hash()
+                h = self.rns_node.get_identity_hash()
                 if h:
-                    identity_text = f"Your Identity Hash:\n{h}"
+                    identity_text = f"Hash:\n{h}"
             except:
                 pass
         self.add(Label(identity_text, style=Pack(margin_bottom=12, font_size=11)))
 
-        # Announce
-        announce_btn = Button("Announce Myself", on_press=self.announce_myself)
+        announce_btn = Button("Announce Myself", on_press=self.announce)
         self.add(announce_btn)
 
         self.announce_label = Label("")
         self.add(self.announce_label)
 
-        # Interfaces
         self.add(Label("\nInterfaces", style=Pack(font_size=16, margin_top=12, margin_bottom=6)))
         self.add(Label("AutoInterface: Enabled"))
-        self.add(Label("TCP connection to desktop: Configured"))
+        self.add(Label("TCP/Android: Configured in reticulum config"))
 
-        note = Label("\nNote: Full interface editing and backend fixes coming in next updates.", style=Pack(font_size=10, margin_top=8))
-        self.add(note)
+        version = Label("\nReticulum Mesh v0.2.0", style=Pack(font_size=10, margin_top=8))
+        self.add(version)
 
-    def announce_myself(self, widget):
-        if self.rns_node and hasattr(self.rns_node, "announce_myself"):
-            success = self.rns_node.announce_myself()
-            if success:
-                self.announce_label.text = "Announced! You are now visible."
-            else:
-                self.announce_label.text = "Announce failed."
-        else:
-            self.announce_label.text = "Backend not ready yet."
+    def announce(self, widget):
+        announced = False
+        if hasattr(self.app_ref, 'lxmf_messenger') and self.app_ref.lxmf_messenger:
+            announced = self.app_ref.lxmf_messenger.announce()
+        if not announced and self.rns_node:
+            announced = self.rns_node.announce_myself()
+        self.announce_label.text = "Announced!" if announced else "Failed"
 
 
 class ReticulumMeshApp(App):
@@ -186,26 +270,35 @@ class ReticulumMeshApp(App):
         self.main_window = MainWindow(title="Reticulum Mesh")
 
         self.rns_node = None
+        self.lxmf_messenger = None
+        self.contact_manager = None
+
         if BACKEND_AVAILABLE and ReticulumNode:
             try:
+                app_config = str(Path.home() / ".config" / "reticulum-mesh-mobile")
                 self.rns_node = ReticulumNode(
                     rns_config_dir=str(Path.home() / ".reticulum"),
-                    app_config_dir=str(Path.home() / ".config" / "reticulum-mesh-mobile")
+                    app_config_dir=app_config
                 )
-                if self.rns_node:
-                    try:
-                        h = self.rns_node.get_identity_hash()
-                        print(f"[Mobile] Device identity: {h}")
-                    except:
-                        pass
+                if self.rns_node and self.rns_node.identity:
+                    h = self.rns_node.get_identity_hash()
+                    print(f"[Mobile] Identity: {h}")
+
+                    if LXMFMessenger:
+                        self.lxmf_messenger = LXMFMessenger(
+                            self.rns_node.identity,
+                            storage_dir=str(Path.home() / ".config" / "reticulum-mesh-mobile" / "lxmf")
+                        )
+                    if ContactManager:
+                        self.contact_manager = ContactManager(app_config)
             except Exception as e:
-                print(f"ReticulumNode failed to start: {e}")
+                print(f"Backend init failed: {e}")
 
         self.content_box = Box(style=Pack(direction=COLUMN, flex=1))
         self.screen_container = Box(style=Pack(direction=COLUMN, flex=1))
 
         nav_bar = Box(style=Pack(direction=ROW, margin=4))
-        for name, key in [("Messages", "messages"), ("Files", "files"), ("Contacts", "contacts"), ("Settings", "settings")]:
+        for name, key in [("Chat", "messages"), ("Files", "files"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
             btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
             btn.style.flex = 1
             nav_bar.add(btn)
@@ -220,14 +313,15 @@ class ReticulumMeshApp(App):
 
     def show_screen(self, screen_name):
         self.screen_container.clear()
-        if screen_name == "messages":
-            self.screen_container.add(MessagesScreen(self.rns_node))
-        elif screen_name == "files":
-            self.screen_container.add(FilesScreen())
-        elif screen_name == "contacts":
-            self.screen_container.add(ContactsScreen())
-        elif screen_name == "settings":
-            self.screen_container.add(SettingsScreen(self.rns_node))
+        screens = {
+            "messages": MessagesScreen(self),
+            "files": FilesScreen(self),
+            "contacts": ContactsScreen(self),
+            "network": NetworkScreen(self),
+            "settings": SettingsScreen(self),
+        }
+        screen = screens.get(screen_name, screens["messages"])
+        self.screen_container.add(screen)
 
 
 def main():
