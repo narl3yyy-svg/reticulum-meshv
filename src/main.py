@@ -90,23 +90,11 @@ class Application:
         if not config_path.exists():
             return
         try:
-            from configobj import ConfigObj
-            cfg = ConfigObj(str(config_path), file_error=True)
-            if "interfaces" not in cfg:
-                cfg["interfaces"] = {}
-            for name in list(cfg["interfaces"]):
-                entry = cfg["interfaces"].get(name, {})
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("type") == "TCPServerInterface" and str(entry.get("listen_port", "")) == "4741":
-                    return
-            cfg["interfaces"]["RMESHV Phone TCP"] = {
-                "type": "TCPServerInterface",
-                "interface_enabled": "Yes",
-                "listen_ip": "0.0.0.0",
-                "listen_port": "4741",
-            }
-            cfg.write()
+            text = config_path.read_text()
+            if "listen_port = 4741" in text or "listen_port=4741" in text:
+                return
+            entry = "\n[[RMESHV Phone TCP]]\n  type = TCPServerInterface\n  interface_enabled = Yes\n  listen_ip = 0.0.0.0\n  listen_port = 4741\n"
+            config_path.write_text(text.rstrip() + "\n" + entry)
             print("[RMESHV] Added TCPServerInterface on port 4741 for phone connections")
         except Exception as e:
             print(f"[RMESHV] Config update note: {e}")

@@ -274,27 +274,45 @@ class SettingsWidget(QWidget):
 
     def _save_interface_settings(self):
         config_path = Path.home() / ".reticulum" / "config"
-        parser = configparser.ConfigParser()
-        if config_path.exists():
-            parser.read(config_path)
+        text = config_path.read_text() if config_path.exists() else ""
 
-        if not parser.has_section("interfaces"):
-            parser.add_section("interfaces")
+        lines = text.splitlines()
+        new_lines = []
+        in_auto = False
+        in_tcp = False
+        auto_done = False
+        tcp_done = False
 
-        auto_sec = "interfaces.AutoInterface"
-        if not parser.has_section(auto_sec):
-            parser.add_section(auto_sec)
-        parser.set(auto_sec, "interface_enabled", str(self.auto_interface_cb.isChecked()))
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[[") and stripped.endswith("]]"):
+                sec_name = stripped[2:-2].strip()
+                in_auto = sec_name == "AutoInterface" or "AutoInterface" in sec_name
+                in_tcp = "TCPServerInterface" in sec_name
+                if in_auto:
+                    auto_done = True
+                if in_tcp:
+                    tcp_done = True
+            if in_auto and stripped.startswith("interface_enabled"):
+                line = f"  interface_enabled = {'Yes' if self.auto_interface_cb.isChecked() else 'No'}"
+            if in_tcp and stripped.startswith("interface_enabled"):
+                line = f"  interface_enabled = {'Yes' if self.tcp_server_cb.isChecked() else 'No'}"
+            if in_tcp and stripped.startswith("listen_port"):
+                line = f"  listen_port = {self.tcp_port.text().strip()}"
+            new_lines.append(line)
 
-        tcp_sec = "interfaces.TCPServerInterface"
-        if not parser.has_section(tcp_sec):
-            parser.add_section(tcp_sec)
-        parser.set(tcp_sec, "interface_enabled", str(self.tcp_server_cb.isChecked()))
-        parser.set(tcp_sec, "listen_port", self.tcp_port.text().strip())
+        if not auto_done:
+            new_lines.append("")
+            new_lines.append("[[AutoInterface]]")
+            new_lines.append(f"  interface_enabled = {'Yes' if self.auto_interface_cb.isChecked() else 'No'}")
+        if not tcp_done:
+            new_lines.append("")
+            new_lines.append("[[TCPServerInterface]]")
+            new_lines.append(f"  interface_enabled = {'Yes' if self.tcp_server_cb.isChecked() else 'No'}")
+            new_lines.append(f"  listen_port = {self.tcp_port.text().strip()}")
 
         try:
-            with open(config_path, "w") as f:
-                parser.write(f)
+            config_path.write_text("\n".join(new_lines) + "\n")
             QMessageBox.information(self, "Saved", "Interface settings saved. Restart to apply.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -304,16 +322,23 @@ class SettingsWidget(QWidget):
         if not config_path.exists():
             return
         try:
-            parser = configparser.ConfigParser()
-            parser.read(config_path)
-            if parser.has_section("interfaces.AutoInterface"):
-                enabled = parser.getboolean("interfaces.AutoInterface", "interface_enabled", fallback=True)
-                self.auto_interface_cb.setChecked(enabled)
-            if parser.has_section("interfaces.TCPServerInterface"):
-                enabled = parser.getboolean("interfaces.TCPServerInterface", "interface_enabled", fallback=False)
-                port = parser.get("interfaces.TCPServerInterface", "listen_port", fallback="4242")
-                self.tcp_server_cb.setChecked(enabled)
-                self.tcp_port.setText(str(port))
+            text = config_path.read_text()
+            lines = text.splitlines()
+            in_auto = False
+            in_tcp = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("[[") and stripped.endswith("]]"):
+                    sec_name = stripped[2:-2].strip()
+                    in_auto = "AutoInterface" in sec_name
+                    in_tcp = "TCPServerInterface" in sec_name
+                    continue
+                if in_auto and stripped.startswith("interface_enabled"):
+                    self.auto_interface_cb.setChecked(stripped.split("=", 1)[1].strip().lower() in ("yes", "true"))
+                if in_tcp and stripped.startswith("interface_enabled"):
+                    self.tcp_server_cb.setChecked(stripped.split("=", 1)[1].strip().lower() in ("yes", "true"))
+                if in_tcp and stripped.startswith("listen_port"):
+                    self.tcp_port.setText(stripped.split("=", 1)[1].strip())
         except:
             pass
 
@@ -375,32 +400,32 @@ class SettingsWidget(QWidget):
             self.serial_interfaces[i]["flow_control"] = self.serial_table.item(i, 3).text() if self.serial_table.item(i, 3) else "0"
 
         config_path = Path.home() / ".reticulum" / "config"
-        parser = configparser.ConfigParser()
-        if config_path.exists():
-            parser.read(config_path)
-
-        if not parser.has_section("interfaces"):
-            parser.add_section("interfaces")
-
-        existing_serial = [s for s in parser.sections() if s.startswith("interfaces.") and any(
-            parser.get(s, "type", fallback="") == t for t in ["SerialInterface", "KISSInterface"]
-        )]
-        for s in existing_serial:
-            parser.remove_section(s)
+        text = config_path.read_text() if config_path.exists() else ""
+        lines = text.splitlines()
+        kept = []
+        skip = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[[") and stripped.endswith("]]"):
+                sec_name = stripped[2:-2].strip()
+                skip = "Serial" in sec_name or "KISS" in sec_name
+            if skip and stripped.startswith("[[") and stripped.endswith("]]") and not ("Serial" in stripped or "KISS" in stripped):
+                skip = False
+            if not skip:
+                kept.append(line)
 
         for i, sif in enumerate(self.serial_interfaces):
-            sec = f"interfaces.Serial{i+1}_{sif['type']}"
-            parser.add_section(sec)
-            parser.set(sec, "type", sif["type"])
-            parser.set(sec, "interface_enabled", "Yes")
-            parser.set(sec, "port", sif["port"])
-            parser.set(sec, "speed", str(sif["speed"]))
+            kept.append("")
+            kept.append(f"[[Serial{i+1}_{sif['type']}]]")
+            kept.append(f"  type = {sif['type']}")
+            kept.append("  interface_enabled = Yes")
+            kept.append(f"  port = {sif['port']}")
+            kept.append(f"  speed = {sif['speed']}")
             if sif["type"] == "SerialInterface" and sif.get("flow_control", "0") != "0":
-                parser.set(sec, "flow_control", sif["flow_control"])
+                kept.append(f"  flow_control = {sif['flow_control']}")
 
         try:
-            with open(config_path, "w") as f:
-                parser.write(f)
+            config_path.write_text("\n".join(kept) + "\n")
             QMessageBox.information(self, "Saved", "Serial interface settings saved. Restart to apply.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -410,21 +435,36 @@ class SettingsWidget(QWidget):
         if not config_path.exists():
             return
         try:
-            parser = configparser.ConfigParser()
-            parser.read(config_path)
+            text = config_path.read_text()
+            lines = text.splitlines()
             self.serial_interfaces = []
-            for sec in parser.sections():
-                if not sec.startswith("interfaces."):
+            current = None
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("[[") and stripped.endswith("]]"):
+                    sec_name = stripped[2:-2].strip()
+                    if "SerialInterface" in sec_name or "KISSInterface" in sec_name:
+                        current = {"type": "KISSInterface" if "KISS" in sec_name else "SerialInterface",
+                                   "port": "/dev/ttyUSB0", "speed": "115200", "flow_control": "0"}
+                    else:
+                        current = None
                     continue
-                iface_type = parser.get(sec, "type", fallback="")
-                if iface_type not in ("SerialInterface", "KISSInterface"):
+                if current is None:
                     continue
-                self.serial_interfaces.append({
-                    "type": iface_type,
-                    "port": parser.get(sec, "port", fallback="/dev/ttyUSB0"),
-                    "speed": parser.get(sec, "speed", fallback="115200"),
-                    "flow_control": parser.get(sec, "flow_control", fallback="0"),
-                })
+                if stripped.startswith("type "):
+                    current["type"] = stripped.split("=", 1)[1].strip()
+                elif stripped.startswith("port "):
+                    current["port"] = stripped.split("=", 1)[1].strip()
+                elif stripped.startswith("speed "):
+                    current["speed"] = stripped.split("=", 1)[1].strip()
+                elif stripped.startswith("flow_control "):
+                    current["flow_control"] = stripped.split("=", 1)[1].strip()
+                elif stripped.startswith("[[") and stripped.endswith("]]"):
+                    if current:
+                        self.serial_interfaces.append(current)
+                    current = None
+            if current:
+                self.serial_interfaces.append(current)
             self._refresh_serial_table()
         except:
             pass

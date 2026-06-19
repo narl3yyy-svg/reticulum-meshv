@@ -150,19 +150,27 @@ class InterfacesWidget(QWidget):
             output = result.stdout or result.stderr
             self.status_details.setPlainText(output)
 
-            if "TCPClientInterface" in output or "TCPInterface" in output:
-                if "Down" in output or "Status : Down" in output:
-                    self.status_summary.setText("TCP Link to Phone: Down / Not Connected")
-                    self.status_summary.setStyleSheet(f"color: {MeshTheme.WARNING}; font-size: 14px; font-weight: 600;")
-                    self.status_dot.set_color(MeshTheme.WARNING)
-                else:
-                    self.status_summary.setText("TCP Link to Phone: Up / Connected")
-                    self.status_summary.setStyleSheet(f"color: {MeshTheme.SUCCESS}; font-size: 14px; font-weight: 600;")
-                    self.status_dot.set_color(MeshTheme.SUCCESS)
-            else:
-                self.status_summary.setText("No active TCP client to phone detected.")
-                self.status_summary.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 14px;")
+            lines = [l.strip() for l in output.splitlines() if l.strip()]
+            iface_count = sum(1 for l in lines if "Interface" in l and ("Enabled" in l or "Up" in l or "Down" in l))
+            down_count = sum(1 for l in lines if "Down" in l)
+            up_count = iface_count - down_count
+
+            if iface_count == 0:
+                self.status_summary.setText("No interfaces detected. Check config.")
+                self.status_summary.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 14px; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px;")
                 self.status_dot.set_color(MeshTheme.TEXT_DIM)
+            elif down_count > 0 and up_count == 0:
+                self.status_summary.setText(f"All {iface_count} interface(s) down")
+                self.status_summary.setStyleSheet(f"color: {MeshTheme.ERROR}; font-size: 14px; font-weight: 600; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px;")
+                self.status_dot.set_color(MeshTheme.ERROR)
+            elif down_count > 0:
+                self.status_summary.setText(f"{up_count} up, {down_count} down out of {iface_count} interface(s)")
+                self.status_summary.setStyleSheet(f"color: {MeshTheme.WARNING}; font-size: 14px; font-weight: 600; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px;")
+                self.status_dot.set_color(MeshTheme.WARNING)
+            else:
+                self.status_summary.setText(f"All {up_count} interface(s) up and running")
+                self.status_summary.setStyleSheet(f"color: {MeshTheme.SUCCESS}; font-size: 14px; font-weight: 600; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px;")
+                self.status_dot.set_color(MeshTheme.SUCCESS)
 
         except Exception as e:
             self.status_details.setPlainText(f"Error: {e}")

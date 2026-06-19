@@ -239,12 +239,12 @@ class MessagesWidget(QWidget):
 
         search = QLineEdit()
         search.setPlaceholderText("Search conversations...")
-        search.setFixedHeight(44)
+        search.setFixedHeight(48)
         search.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
-                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
-                padding: 10px 14px; font-size: 15px; margin: 8px 12px;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px;
+                padding: 12px 16px; font-size: 15px; margin: 8px 12px;
                 font-weight: 500;
             }}
             QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
@@ -323,36 +323,37 @@ class MessagesWidget(QWidget):
 
         self.message_input = QTextEdit()
         self.message_input.setPlaceholderText("Type a message...")
-        self.message_input.setFixedHeight(40)
+        self.message_input.setFixedHeight(44)
         self.message_input.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
                 border: 1px solid {MeshTheme.INPUT_BORDER};
-                border-radius: 20px; padding: 8px 16px; font-size: 13px;
+                border-radius: 22px; padding: 10px 18px; font-size: 14px;
             }}
             QTextEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
             QTextEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
         """)
         inp_layout.addWidget(self.message_input, 1)
 
-        attach_btn = QPushButton("\U0001F4CE")
-        attach_btn.setFixedSize(40, 40)
+        attach_btn = QPushButton("+")
+        attach_btn.setFixedSize(44, 44)
         attach_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; border: 1px solid {MeshTheme.BORDER};
-                border-radius: 20px; font-size: 16px;
+                background: {MeshTheme.SURFACE_LIGHT}; color: {MeshTheme.TEXT};
+                border: none; border-radius: 22px;
+                font-size: 22px; font-weight: 700;
             }}
-            QPushButton:hover {{ background-color: {MeshTheme.SURFACE_VARIANT}; }}
+            QPushButton:hover {{ background-color: {MeshTheme.BORDER_LIGHT}; }}
         """)
         attach_btn.clicked.connect(self._attach_file)
         inp_layout.addWidget(attach_btn)
 
-        send_btn = QPushButton("\u27A4")
-        send_btn.setFixedSize(40, 40)
+        send_btn = QPushButton(">")
+        send_btn.setFixedSize(44, 44)
         send_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {MeshTheme.ACCENT}; color: white; border: none;
-                border-radius: 20px; font-size: 20px;
+                border-radius: 22px; font-size: 22px; font-weight: 700;
             }}
             QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
         """)
