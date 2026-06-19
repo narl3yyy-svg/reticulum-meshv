@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QDateTime
 from PyQt6.QtGui import QFont, QColor
 from src.config.theme import MeshTheme
+from src.ui.widgets.common import EmptyState
 import time
 
 
@@ -136,6 +137,9 @@ class AnnouncesWidget(QWidget):
 
         layout.addWidget(header)
 
+        self.announces_empty = EmptyState("\U0001F4E2", "No announces yet", "Network announces from other nodes appear here")
+        layout.addWidget(self.announces_empty)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -174,6 +178,8 @@ class AnnouncesWidget(QWidget):
             row = idx // 4
             col = idx % 4
             self.grid.addWidget(card, row, col)
+
+        self.announces_empty.setVisible(len(peers) == 0)
 
     def _announce_myself(self):
         if self.backend.lxmf_messenger:

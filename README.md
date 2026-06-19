@@ -2,7 +2,7 @@
 
 A modern, feature-rich **PyQt6 desktop application** (with mobile companion) for mesh networking via **Reticulum Network Stack (RNS)**.
 
-**v0.2.0 — MeshChatX Feature Integration**
+**v0.3.0 — Polished UI & Desktop–Mobile Bridge**
 
 ## Features
 
@@ -61,6 +61,9 @@ A modern, feature-rich **PyQt6 desktop application** (with mobile companion) for
 - Arch Linux-inspired dark theme
 - Material Design components
 - Responsive layouts with PyQt6
+- Empty-state placeholders for all widgets
+- Status-dot indicators (online/offline/away)
+- Thread-safe QTimer-based auto-refresh
 
 ## Requirements
 
@@ -109,13 +112,14 @@ reticulum-meshv/
 │   │   ├── network_monitor.py    # Topology tracker
 │   │   └── telephony_manager.py  # LXST voice calls
 │   ├── ui/
-│   │   ├── main_window.py        # 8-tab navigation + status bar
+│   │   ├── main_window.py        # 9-tab sidebar navigation + status bar
 │   │   └── widgets/
-│   │       ├── messages_widget.py
+│   │       ├── common.py          # Shared EmptyState + StatusDot components
+│   │       ├── messages_widget.py # Two-pane chat with bubbles + unread badges
 │   │       ├── file_manager_widget.py
 │   │       ├── contacts_widget.py
 │   │       ├── identities_widget.py
-│   │       ├── network_widget.py
+│   │       ├── network_widget.py  # Peer/interface/path tables
 │   │       ├── telephony_widget.py
 │   │       ├── interfaces_widget.py
 │   │       └── settings_widget.py
@@ -137,7 +141,8 @@ reticulum-meshv/
 - [ ] Real RNS file transfer using `RNS.Resource` (chunked, resumable)
 - [ ] Incoming file receiver mode
 - [ ] QR code for identity (easy mobile pairing)
-- [ ] Settings panel for theme, interfaces
+- [x] Settings panel for interfaces, downloads, identity
+- [ ] Settings panel for theme
 
 ## Troubleshooting
 

@@ -1,14 +1,14 @@
-"""MeshChatX-inspired contacts widget with card layout."""
+"""Contacts widget showing discovered peers from the mesh."""
 
+import time
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QLineEdit, QScrollArea, QFrame, QGridLayout, QSizePolicy,
-    QMenu, QApplication
+    QLineEdit, QScrollArea, QFrame, QGridLayout, QMenu,
+    QApplication, QInputDialog
 )
-from PyQt6.QtCore import Qt, QSize, QDateTime
-from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
-import time
+from PyQt6.QtCore import Qt, QTimer
 from src.config.theme import MeshTheme
+from src.ui.widgets.common import EmptyState
 
 
 class ContactCard(QFrame):
@@ -28,7 +28,6 @@ class ContactCard(QFrame):
                 background-color: {MeshTheme.SURFACE_VARIANT};
             }}
         """)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 20, 16, 16)
         layout.setSpacing(8)
@@ -41,42 +40,36 @@ class ContactCard(QFrame):
         label.setStyleSheet(f"""
             background-color: {MeshTheme.ACCENT}30;
             color: {MeshTheme.ACCENT};
-            font-size: 28px;
-            font-weight: 700;
-            border-radius: 32px;
+            font-size: 28px; font-weight: 700; border-radius: 32px;
         """)
         layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
 
         name_label = QLabel(name)
         name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name_label.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MeshTheme.TEXT}; background: transparent;")
-        font = name_label.font()
-        metrics = name_label.fontMetrics()
-        elided = metrics.elidedText(name, Qt.TextElideMode.ElideRight, 180)
-        name_label.setText(elided)
         layout.addWidget(name_label)
 
         hash_str = contact_data.get('hash', '')[:12]
         hash_label = QLabel(hash_str)
         hash_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hash_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {MeshTheme.TEXT_DIM}; background: transparent;")
+        hash_label.setStyleSheet(
+            "font-family: 'JetBrains Mono', monospace; font-size: 10px; "
+            f"color: {MeshTheme.TEXT_DIM}; background: transparent;")
         layout.addWidget(hash_label)
 
         status = contact_data.get('status', 'offline')
-        status_colors = {'online': MeshTheme.SUCCESS, 'away': MeshTheme.WARNING, 'offline': MeshTheme.TEXT_DIM}
-        color = status_colors.get(status, MeshTheme.TEXT_DIM)
+        sc = {'online': MeshTheme.SUCCESS, 'away': MeshTheme.WARNING, 'offline': MeshTheme.TEXT_DIM}
         status_label = QLabel(f"\u25CF {status.capitalize()}")
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_label.setStyleSheet(f"font-size: 11px; color: {color}; background: transparent;")
+        status_label.setStyleSheet(f"font-size: 11px; color: {sc.get(status, MeshTheme.TEXT_DIM)}; background: transparent;")
         layout.addWidget(status_label)
 
         btn = QPushButton("Message")
         btn.setFixedHeight(32)
         btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MeshTheme.ACCENT};
-                color: white; border: none; border-radius: 8px;
-                font-size: 12px; font-weight: 600;
+                background-color: {MeshTheme.ACCENT}; color: white;
+                border: none; border-radius: 8px; font-size: 12px; font-weight: 600;
             }}
             QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
         """)
@@ -84,42 +77,28 @@ class ContactCard(QFrame):
         layout.addWidget(btn)
 
     def _message(self):
-        from PyQt6.QtWidgets import QApplication
         win = self.window()
         if hasattr(win, '_switch_to'):
             win._switch_to(0)
         if hasattr(win, 'messages_widget'):
-            hash_val = self.contact_data.get('hash', '')
-            if isinstance(win.messages_widget, QWidget):
-                from PyQt6.QtCore import QDateTime
-                win.messages_widget.add_conversation(
-                    hash_val,
-                    self.contact_data.get('display_name', hash_val[:8])
-                )
+            h = self.contact_data.get('hash', '')
+            n = self.contact_data.get('display_name', h[:8])
+            win.messages_widget.add_conversation(h, n)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {MeshTheme.SURFACE};
-                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px; border-radius: 4px;
-                color: {MeshTheme.TEXT};
-            }}
-            QMenu::item:selected {{
-                background-color: {MeshTheme.ACCENT}; color: white;
-            }}
+            QMenu {{ background-color: {MeshTheme.SURFACE};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; padding: 4px; }}
+            QMenu::item {{ padding: 6px 20px; border-radius: 4px; color: {MeshTheme.TEXT}; }}
+            QMenu::item:selected {{ background-color: {MeshTheme.ACCENT}; color: white; }}
         """)
-        copy_action = menu.addAction("Copy Identity Hash")
-        delete_action = menu.addAction("Delete Contact")
+        copy_a = menu.addAction("Copy Identity Hash")
+        delete_a = menu.addAction("Delete Contact")
         action = menu.exec(event.globalPos())
-        if action == copy_action:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self.contact_data.get('hash', ''))
-        elif action == delete_action:
+        if action == copy_a:
+            QApplication.clipboard().setText(self.contact_data.get('hash', ''))
+        elif action == delete_a:
             self.setParent(None)
             self.deleteLater()
 
@@ -133,42 +112,57 @@ class ContactsWidget(QWidget):
         layout.setSpacing(16)
 
         header = QWidget()
-        hdr_layout = QHBoxLayout(header)
-        hdr_layout.setContentsMargins(0, 0, 0, 0)
+        hdr = QHBoxLayout(header)
+        hdr.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Contacts")
-        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
-        hdr_layout.addWidget(title)
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT};")
+        hdr.addWidget(title)
 
-        search = QLineEdit()
-        search.setPlaceholderText("\U0001F50D Search contacts...")
-        search.setFixedWidth(240)
-        search.setFixedHeight(36)
-        search.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {MeshTheme.INPUT_BG};
-                color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER};
-                border-radius: 8px; padding: 6px 12px; font-size: 13px;
-            }}
-            QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
-            QLineEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
-        """)
-        search.textChanged.connect(self._filter_cards)
-        hdr_layout.addStretch()
-        hdr_layout.addWidget(search)
-
-        add_btn = QPushButton("+ Add Contact")
-        add_btn.setFixedHeight(36)
-        add_btn.setStyleSheet(f"""
+        self.announce_btn = QPushButton("Announce Myself")
+        self.announce_btn.setFixedHeight(36)
+        self.announce_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {MeshTheme.ACCENT};
-                color: white; border: none; border-radius: 8px;
-                padding: 6px 18px; font-size: 13px; font-weight: 600;
+                background-color: {MeshTheme.ACCENT}; color: white;
+                border: none; border-radius: 8px; padding: 6px 18px;
+                font-size: 13px; font-weight: 600;
             }}
             QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
         """)
+        self.announce_btn.clicked.connect(self._announce)
+        hdr.addStretch()
+        hdr.addWidget(self.announce_btn)
+
+        search = QLineEdit()
+        search.setPlaceholderText("Search contacts...")
+        search.setFixedWidth(200)
+        search.setFixedHeight(36)
+        search.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
+                border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px;
+                padding: 6px 12px; font-size: 13px;
+            }}
+            QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
+        """)
+        search.textChanged.connect(self._filter_cards)
+        hdr.addWidget(search)
+
+        add_btn = QPushButton("+ Add")
+        add_btn.setFixedHeight(36)
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent; color: {MeshTheme.ACCENT};
+                border: 1px solid {MeshTheme.ACCENT}; border-radius: 8px;
+                padding: 6px 14px; font-size: 13px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT}20; }}
+        """)
         add_btn.clicked.connect(self._add_contact)
-        hdr_layout.addWidget(add_btn)
+        hdr.addWidget(add_btn)
         layout.addWidget(header)
+
+        self.contacts_empty = EmptyState("\U0001F465", "No contacts yet", "Contacts appear here when discovered on the mesh or added manually")
+        layout.addWidget(self.contacts_empty)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -185,50 +179,80 @@ class ContactsWidget(QWidget):
         layout.addWidget(scroll, 1)
 
         self.cards = []
-        self._populate_contacts()
+        self._timer = QTimer()
+        self._timer.timeout.connect(self._refresh)
+        self._timer.start(10000)
+        self._refresh()
 
-    def _populate_contacts(self):
+    def _refresh(self):
+        self._clear_grid()
+        peers = []
+        seen = set()
+        if self.backend.network_monitor:
+            peers = self.backend.network_monitor.get_peers()
+            for p in peers:
+                h = p.get("hash", "")
+                if h in seen:
+                    continue
+                seen.add(h)
+                age = time.time() - p.get("last_seen", 0)
+                status = "online" if age < 300 else "away" if age < 3600 else "offline"
+                self.add_contact({
+                    "hash": h,
+                    "display_name": p.get("app_data", h[:8]),
+                    "status": status,
+                })
         if self.backend.contact_manager:
-            for contact in self.backend.contact_manager.get_all():
-                data = {
-                    'hash': contact.hash_hex,
-                    'display_name': contact.name,
-                    'status': 'online' if time.time() - contact.last_seen < 300 else 'offline',
-                }
-                self.add_contact(data)
-        else:
-            sample_data = [
-                {'hash': 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6', 'display_name': 'Alice', 'status': 'online'},
-                {'hash': 'b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1', 'display_name': 'Bob', 'status': 'away'},
-                {'hash': 'c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2', 'display_name': 'Charlie (Relay)', 'status': 'online'},
-                {'hash': 'd4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2c3', 'display_name': 'Diana', 'status': 'offline'},
-                {'hash': 'e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2c3d4', 'display_name': 'Eve (Node)', 'status': 'online'},
-            ]
-            for data in sample_data:
-                self.add_contact(data)
+            for c in self.backend.contact_manager.get_all():
+                if c.hash_hex not in seen:
+                    seen.add(c.hash_hex)
+                    age = time.time() - c.last_seen
+                    status = "online" if age < 300 else "offline"
+                    self.add_contact({
+                        "hash": c.hash_hex,
+                        "display_name": c.name,
+                        "status": status,
+                    })
+        if not self.cards and self.backend.rns_node:
+            self.add_contact({
+                "hash": self.backend.rns_node.get_identity_hash(),
+                "display_name": "You",
+                "status": "online",
+            })
+        self.contacts_empty.setVisible(len(self.cards) == 0)
+
+    def _clear_grid(self):
+        for card in self.cards:
+            self.grid.removeWidget(card)
+            card.deleteLater()
+        self.cards = []
 
     def add_contact(self, data):
         card = ContactCard(data)
         self.cards.append(card)
         idx = len(self.cards) - 1
-        row = idx // 4
-        col = idx % 4
-        self.grid.addWidget(card, row, col)
+        self.grid.addWidget(card, idx // 4, idx % 4)
+        self.contacts_empty.setVisible(False)
+
+    def _announce(self):
+        if self.backend:
+            self.backend.announce_now()
 
     def _add_contact(self):
-        from PyQt6.QtWidgets import QInputDialog, QLineEdit
         dialog = QInputDialog(self)
         dialog.setWindowTitle("Add Contact")
-        dialog.setLabelText("Enter destination identity hash:")
+        dialog.setLabelText("Enter identity hash:")
         if dialog.exec():
-            hash_val = dialog.textValue().strip()
-            if hash_val:
-                data = {'hash': hash_val, 'display_name': hash_val[:16], 'status': 'offline'}
-                self.add_contact(data)
+            h = dialog.textValue().strip()
+            if h:
+                self.add_contact({"hash": h, "display_name": h[:16], "status": "offline"})
 
     def _filter_cards(self, text):
         for card in self.cards:
-            name = card.contact_data.get('display_name', '')
-            hash_val = card.contact_data.get('hash', '')
-            visible = text.lower() in name.lower() or text.lower() in hash_val.lower()
-            card.setVisible(visible)
+            n = card.contact_data.get('display_name', '')
+            h = card.contact_data.get('hash', '')
+            card.setVisible(text.lower() in n.lower() or text.lower() in h.lower())
+
+    def _cleanup(self):
+        if self._timer and self._timer.isActive():
+            self._timer.stop()

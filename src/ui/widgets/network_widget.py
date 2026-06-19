@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 from src.config.theme import MeshTheme
+from src.ui.widgets.common import StatusDot, EmptyState
 
 
 class NetworkWidget(QWidget):
@@ -34,6 +35,9 @@ class NetworkWidget(QWidget):
         header.addWidget(refresh_btn)
 
         layout.addLayout(header)
+
+        self.network_empty = EmptyState("\U0001F310", "No peers discovered", "Your mesh network will be visible here")
+        layout.addWidget(self.network_empty)
 
         peer_group = QGroupBox("Discovered Peers")
         peer_group.setStyleSheet(f"""
@@ -131,7 +135,9 @@ class NetworkWidget(QWidget):
 
         self.iface_tree.clear()
         for name, info in interfaces.items():
-            status = "● Online" if info.get("online") else "○ Offline"
+            online = info.get("online", False)
+            dot_color = MeshTheme.SUCCESS if online else MeshTheme.TEXT_DIM
+            status = f"● {'Online' if online else 'Offline'}"
             item = QTreeWidgetItem([
                 name,
                 info.get("type", ""),
@@ -139,6 +145,7 @@ class NetworkWidget(QWidget):
                 self._fmt_bytes(info.get("bytes_in", 0)),
                 self._fmt_bytes(info.get("bytes_out", 0)),
             ])
+            item.setForeground(2, Qt.GlobalColor.green if online else Qt.GlobalColor.gray)
             self.iface_tree.addTopLevelItem(item)
 
         path_lines = []
@@ -147,6 +154,7 @@ class NetworkWidget(QWidget):
             path_lines.append(f"{dest[:16]}... → {hops_str}")
         self.path_text.setPlainText("\n".join(path_lines) if path_lines else "No paths discovered yet")
 
+        self.network_empty.setVisible(len(peers) == 0)
         self.status_label.setText(f"Monitoring — {len(peers)} peers, {len(interfaces)} interfaces, {len(paths)} paths")
 
     def _fmt_time(self, ts: float) -> str:

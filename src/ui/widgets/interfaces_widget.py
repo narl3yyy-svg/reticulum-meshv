@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 import subprocess
 from src.config.theme import MeshTheme
+from src.ui.widgets.common import StatusDot
 
 
 class InterfacesWidget(QWidget):
@@ -42,9 +43,14 @@ class InterfacesWidget(QWidget):
         status_group.setStyleSheet(group_style())
         status_layout = QVBoxLayout()
 
+        status_row = QHBoxLayout()
+        self.status_dot = StatusDot(StatusDot.UNKNOWN, 12)
+        self.status_dot.setStyleSheet("background: transparent;")
+        status_row.addWidget(self.status_dot)
         self.status_summary = QLabel("Click Refresh to check links")
         self.status_summary.setStyleSheet(f"font-size: 14px; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px; color: {MeshTheme.TEXT};")
-        status_layout.addWidget(self.status_summary)
+        status_row.addWidget(self.status_summary, 1)
+        status_layout.addLayout(status_row)
 
         self.status_details = QTextEdit()
         self.status_details.setReadOnly(True)
@@ -148,15 +154,19 @@ class InterfacesWidget(QWidget):
                 if "Down" in output or "Status : Down" in output:
                     self.status_summary.setText("TCP Link to Phone: Down / Not Connected")
                     self.status_summary.setStyleSheet(f"color: {MeshTheme.WARNING}; font-size: 14px; font-weight: 600;")
+                    self.status_dot.set_color(MeshTheme.WARNING)
                 else:
                     self.status_summary.setText("TCP Link to Phone: Up / Connected")
                     self.status_summary.setStyleSheet(f"color: {MeshTheme.SUCCESS}; font-size: 14px; font-weight: 600;")
+                    self.status_dot.set_color(MeshTheme.SUCCESS)
             else:
                 self.status_summary.setText("No active TCP client to phone detected.")
                 self.status_summary.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 14px;")
+                self.status_dot.set_color(MeshTheme.TEXT_DIM)
 
         except Exception as e:
             self.status_details.setPlainText(f"Error: {e}")
+            self.status_dot.set_color(MeshTheme.TEXT_DIM)
 
     def _add_phone_connection(self):
         ip = self.phone_ip.text().strip()

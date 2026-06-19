@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QDateTime, QEvent
 from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
 from src.config.theme import MeshTheme
+from src.ui.widgets.common import EmptyState
 
 
 STATUS_SYMBOLS = {
@@ -236,6 +237,9 @@ class MessagesWidget(QWidget):
         search.textChanged.connect(self._filter_conversations)
         layout.addWidget(search)
 
+        self.conv_empty = EmptyState("\U0001F4AC", "No conversations", "Messages from contacts appear here")
+        layout.addWidget(self.conv_empty)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -269,6 +273,19 @@ class MessagesWidget(QWidget):
         ch_layout.addStretch()
         layout.addWidget(self.chat_header)
 
+        from PyQt6.QtWidgets import QStackedWidget
+        self.chat_stack = QStackedWidget()
+        self.chat_stack.setStyleSheet("background: transparent;")
+
+        self.chat_empty = EmptyState("\U0001F4AC", "No conversation selected", "Choose a conversation from the sidebar to start chatting")
+        self.chat_stack.addWidget(self.chat_empty)
+
+        chat_content = QWidget()
+        chat_content.setStyleSheet("background: transparent;")
+        chat_clayout = QVBoxLayout(chat_content)
+        chat_clayout.setContentsMargins(0, 0, 0, 0)
+        chat_clayout.setSpacing(0)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -281,7 +298,7 @@ class MessagesWidget(QWidget):
         self.messages_layout.setSpacing(6)
         self.messages_layout.addStretch()
         scroll.setWidget(self.messages_container)
-        layout.addWidget(scroll, 1)
+        chat_clayout.addWidget(scroll, 1)
 
         input_frame = QFrame()
         input_frame.setStyleSheet(f"background-color: {MeshTheme.SURFACE}; border-top: 1px solid {MeshTheme.BORDER};")
@@ -328,7 +345,10 @@ class MessagesWidget(QWidget):
 
         self.message_input.installEventFilter(self)
 
-        layout.addWidget(input_frame)
+        chat_clayout.addWidget(input_frame)
+        self.chat_stack.addWidget(chat_content)
+        layout.addWidget(self.chat_stack, 1)
+        self.chat_stack.setCurrentIndex(0)
         return panel
 
     def eventFilter(self, obj, event):
@@ -353,6 +373,7 @@ class MessagesWidget(QWidget):
         item.selected.connect(self._select_conversation)
         self.conversations[conv_id] = item
         self.conv_layout.insertWidget(self.conv_layout.count() - 1, item)
+        self.conv_empty.setVisible(False)
 
     def _select_conversation(self, conv_id):
         for cid, item in self.conversations.items():
@@ -364,6 +385,7 @@ class MessagesWidget(QWidget):
                 name = item._display
                 break
         self.chat_title.setText(name)
+        self.chat_stack.setCurrentIndex(1)
         self._load_messages(conv_id)
 
     def _load_messages(self, conv_id):
