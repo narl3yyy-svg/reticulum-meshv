@@ -52,7 +52,9 @@ class MobileReticulumNode:
             except:
                 pass
         except Exception as e:
+            import traceback
             print(f"[Mobile] RNS init error: {e}")
+            traceback.print_exc()
 
     def _load_identity(self):
         path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity.key"
@@ -88,6 +90,9 @@ class MobileReticulumNode:
         return list(self.discovered_peers.items())
 
     def announce_myself(self):
+        if not self.identity:
+            print("[Mobile] announce: no identity loaded")
+            return False
         try:
             dest = RNS.Destination(
                 self.identity,
@@ -97,8 +102,12 @@ class MobileReticulumNode:
                 "announce"
             )
             dest.announce()
+            print("[Mobile] announce: OK")
             return True
-        except:
+        except Exception as e:
+            print(f"[Mobile] announce failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def send_text(self, destination_hash, text):
@@ -252,16 +261,16 @@ class ContactsScreen(Box):
         self.peer_label = make_label("(refresh to see peers)")
         self.add(self.peer_label)
 
-        refresh_btn = Button("Refresh", on_press=self.refresh)
+        refresh_btn = Button("Refresh", on_press=self.refresh_peers)
         self.add(refresh_btn)
 
-        self.refresh(None)
+        self.refresh_peers(None)
 
     def announce(self, widget):
         if self.node:
             self.status.text = "Announced!" if self.node.announce_myself() else "Failed"
 
-    def refresh(self, widget):
+    def refresh_peers(self, widget):
         if not self.node:
             self.peer_label.text = "Reticulum not available"
             return
@@ -281,14 +290,14 @@ class NetworkScreen(Box):
         h = self.node.get_identity_hash() if self.node else ""
         self.add(make_label(f"Identity:\n{h[:32] if h else 'Not loaded'}...", size=11, margin_b=12))
 
-        refresh_btn = Button("Refresh", on_press=self.refresh)
+        refresh_btn = Button("Refresh", on_press=self.refresh_network)
         self.add(refresh_btn)
 
         self.status = make_label("")
         self.add(self.status)
-        self.refresh(None)
+        self.refresh_network(None)
 
-    def refresh(self, widget):
+    def refresh_network(self, widget):
         if not self.node:
             self.status.text = "Reticulum not available"
             return
