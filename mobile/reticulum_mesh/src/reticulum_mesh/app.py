@@ -337,7 +337,6 @@ class ReticulumMeshApp(App):
         nav_bar.style.direction = ROW
         nav_bar.style.margin = 4
 
-        self.screens = {}
         for name, key in [("Chat", "chat"), ("Contacts", "contacts"), ("Network", "network"), ("Settings", "settings")]:
             btn = Button(name, on_press=lambda w, k=key: self.show_screen(k))
             btn.style.flex = 1
