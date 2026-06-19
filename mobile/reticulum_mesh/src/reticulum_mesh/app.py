@@ -1,9 +1,9 @@
-"""Reticulum Mesh Mobile - Improved Messages tab with chat bubbles and Reticulum sending."""
+"""Reticulum Mesh Mobile App - More complete version."""
 
 import sys
 from pathlib import Path
 
-# Try to import backend (graceful fallback on Android)
+# Backend import with graceful fallback
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
     from src.backend import ReticulumNode
@@ -24,30 +24,24 @@ except ImportError:
     from toga.constants import COLUMN, ROW
 
 
-def format_time():
+def get_timestamp():
     from datetime import datetime
     return datetime.now().strftime("%H:%M")
 
 
 class ChatBubble(Box):
-    """Nice chat bubble component."""
     def __init__(self, text: str, is_sent: bool = True, timestamp: str = ""):
         super().__init__(
             style=Pack(
                 direction=COLUMN,
-                margin=6,
-                margin_left=70 if is_sent else 10,
-                margin_right=10 if is_sent else 70,
+                margin=5,
+                margin_left=65 if is_sent else 8,
+                margin_right=8 if is_sent else 65,
             )
         )
-
-        # Message text
-        msg = Label(text, style=Pack(margin=10, margin_bottom=2))
-        self.add(msg)
-
+        self.add(Label(text, style=Pack(margin=8, margin_bottom=2)))
         if timestamp:
-            time_label = Label(timestamp, style=Pack(margin=10, margin_top=0, font_size=10))
-            self.add(time_label)
+            self.add(Label(timestamp, style=Pack(margin=8, margin_top=0, font_size=10)))
 
 
 class MessagesScreen(Box):
@@ -57,51 +51,56 @@ class MessagesScreen(Box):
         self.rns_node = rns_node
         self.current_dest = ""
 
-        # Header
-        header = Label("Messages", style=Pack(font_size=20, margin_bottom=6))
-        self.add(header)
+        self.add(Label("Messages", style=Pack(font_size=20, margin_bottom=6)))
 
-        # Destination input
-        dest_row = Box(style=Pack(direction=ROW, margin_bottom=8))
+        # Destination row
+        dest_row = Box(style=Pack(direction=ROW, margin_bottom=6))
         dest_row.add(Label("To:", style=Pack(margin_right=6)))
-        self.dest_input = TextInput(placeholder="64-char destination hash", style=Pack(flex=1))
-        start_btn = Button("Start Chat", on_press=self.start_chat, style=Pack(width=100))
+        self.dest_input = TextInput(placeholder="Paste 64-char hash here", style=Pack(flex=1))
+        start_btn = Button("Start", on_press=self.start_chat, style=Pack(width=70))
         dest_row.add(self.dest_input)
         dest_row.add(start_btn)
         self.add(dest_row)
 
+        # Help text
+        self.help_label = Label(
+            "Enter the other device's full 64-character identity hash above, then tap Start.",
+            style=Pack(font_size=11, margin_bottom=8)
+        )
+        self.add(self.help_label)
+
         # Chat area
         self.scroll = ScrollContainer(style=Pack(flex=1))
-        self.messages_box = Box(style=Pack(direction=COLUMN))
-        self.scroll.content = self.messages_box
+        self.chat_box = Box(style=Pack(direction=COLUMN))
+        self.scroll.content = self.chat_box
         self.add(self.scroll)
 
-        # Input bar
+        # Input
         input_row = Box(style=Pack(direction=ROW, margin_top=8))
-        self.input = TextInput(placeholder="Type a message...", style=Pack(flex=1, margin_right=8))
-        send_btn = Button("Send", on_press=self.send_message, style=Pack(width=80))
+        self.input = TextInput(placeholder="Type message...", style=Pack(flex=1, margin_right=8))
+        send_btn = Button("Send", on_press=self.send_message, style=Pack(width=70))
         input_row.add(self.input)
         input_row.add(send_btn)
         self.add(input_row)
 
-        # Welcome
-        self.add_bubble("Welcome! Enter a destination hash above to start chatting.", is_sent=False)
+        self.add_bubble("Welcome! Enter the other device's hash above to begin.", is_sent=False)
 
     def start_chat(self, widget):
-        dest = self.dest_input.value.strip().lower()
+        dest = self.dest_input.value.strip().lower().replace(" ", "").replace("-", "")
         if len(dest) == 64:
             self.current_dest = dest
-            self.add_bubble(f"Now chatting with {dest[:12]}...", is_sent=False)
+            self.add_bubble(f"Chat started with {dest[:12]}...", is_sent=False)
+            self.help_label.text = "Chat active. Type below and tap Send."
         else:
-            self.add_bubble("Please enter a valid 64-character hash.", is_sent=False)
+            self.add_bubble("Hash must be exactly 64 characters.", is_sent=False)
 
     def add_bubble(self, text: str, is_sent: bool = True):
-        bubble = ChatBubble(text, is_sent=is_sent, timestamp=format_time())
-        self.messages_box.add(bubble)
+        bubble = ChatBubble(text, is_sent=is_sent, timestamp=get_timestamp())
+        self.chat_box.add(bubble)
 
     def send_message(self, widget):
         if not self.current_dest:
-            self.add_bubble("Please enter a destination hash first.", is_sent=False)
+            self.add_bubble("Please start a chat first (enter hash above).", is_sent=False)
             return
 
         text = self.input.value.strip()
@@ -111,45 +110,32 @@ class MessagesScreen(Box):
         self.add_bubble(text, is_sent=True)
         self.input.value = ""
 
-        # Try to send via Reticulum if available
+        # Attempt real Reticulum send
         if BACKEND_AVAILABLE and self.rns_node and RNS:
             try:
                 dest_bytes = bytes.fromhex(self.current_dest)
-                remote_identity = RNS.Identity.recall(dest_bytes)
+                remote_id = RNS.Identity.recall(dest_bytes)
 
-                if remote_identity:
-                    destination = RNS.Destination(
-                        remote_identity,
-                        RNS.Destination.OUT,
-                        RNS.Destination.SINGLE,
-                        "reticulum-meshv",
-                        "filetransfer"
-                    )
+                if remote_id:
+                    dest = RNS.Destination(remote_id, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
                 else:
-                    # Fallback
-                    destination = RNS.Destination(
-                        self.rns_node.identity,
-                        RNS.Destination.OUT,
-                        RNS.Destination.SINGLE,
-                        "reticulum-meshv",
-                        "filetransfer"
-                    )
-                    destination.hash = dest_bytes
+                    dest = RNS.Destination(self.rns_node.identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
+                    dest.hash = dest_bytes
 
-                RNS.Resource(text.encode("utf-8"), destination)
-                print(f"[Mobile] Message sent via Reticulum: {text}")
+                RNS.Resource(text.encode("utf-8"), dest)
+                print(f"[Mobile] Sent via Reticulum: {text}")
             except Exception as e:
-                print(f"[Mobile] Failed to send via Reticulum: {e}")
-                self.add_bubble("Failed to send (backend error).", is_sent=False)
+                print(f"[Mobile] Send failed: {e}")
+                self.add_bubble("Send failed (see logs).", is_sent=False)
         else:
-            print(f"[Mobile] Backend not available. Message: {text}")
+            print(f"[Mobile] Backend not ready. Message: {text}")
 
 
 class FilesScreen(Box):
     def __init__(self):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
         self.add(Label("Files", style=Pack(font_size=20, margin_bottom=8)))
-        self.add(Label("File transfer coming soon."))
+        self.add(Label("File transfer will be added here."))
 
 
 class ContactsScreen(Box):
@@ -160,18 +146,33 @@ class ContactsScreen(Box):
 
 
 class SettingsScreen(Box):
-    def __init__(self):
+    def __init__(self, rns_node=None):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
-        self.add(Label("Settings", style=Pack(font_size=20, margin_bottom=8)))
-        status = "Reticulum backend: Connected" if BACKEND_AVAILABLE else "Reticulum backend: Not available on this build"
-        self.add(Label(status))
+        self.add(Label("Settings", style=Pack(font_size=20, margin_bottom=10)))
+
+        if rns_node and hasattr(rns_node, "get_identity_hash"):
+            try:
+                my_hash = rns_node.get_identity_hash()
+                self.add(Label(f"Your Identity Hash:\n{my_hash}", style=Pack(margin_bottom=12, font_size=11)))
+            except:
+                self.add(Label("Could not load identity hash."))
+        else:
+            self.add(Label("Identity hash not available in this build."))
+
+        self.add(Label("Tap the button below to announce yourself on the network."))
+
+        announce_btn = Button("Announce Myself", on_press=self.announce_myself, style=Pack(margin_top=10))
+        self.add(announce_btn)
+
+    def announce_myself(self, widget):
+        # This will be connected to the main app's rns_node
+        print("[Mobile] Announce requested from Settings")
 
 
 class ReticulumMeshApp(App):
     def startup(self):
         self.main_window = MainWindow(title="Reticulum Mesh")
 
-        # Try to initialize ReticulumNode
         self.rns_node = None
         if BACKEND_AVAILABLE and ReticulumNode:
             try:
@@ -180,7 +181,7 @@ class ReticulumMeshApp(App):
                     app_config_dir=str(Path.home() / ".config" / "reticulum-mesh-mobile")
                 )
             except Exception as e:
-                print(f"ReticulumNode init failed: {e}")
+                print(f"ReticulumNode init error: {e}")
 
         self.content_box = Box(style=Pack(direction=COLUMN, flex=1))
         self.screen_container = Box(style=Pack(direction=COLUMN, flex=1))
@@ -201,14 +202,14 @@ class ReticulumMeshApp(App):
 
     def show_screen(self, screen_name):
         self.screen_container.clear()
-        screens = {
-            "messages": lambda: MessagesScreen(self.rns_node),
-            "files": FilesScreen,
-            "contacts": ContactsScreen,
-            "settings": SettingsScreen,
-        }
-        if screen_name in screens:
-            self.screen_container.add(screens[screen_name]())
+        if screen_name == "messages":
+            self.screen_container.add(MessagesScreen(self.rns_node))
+        elif screen_name == "files":
+            self.screen_container.add(FilesScreen())
+        elif screen_name == "contacts":
+            self.screen_container.add(ContactsScreen())
+        elif screen_name == "settings":
+            self.screen_container.add(SettingsScreen(self.rns_node))
 
 
 def main():
