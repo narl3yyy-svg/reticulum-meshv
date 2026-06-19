@@ -117,12 +117,18 @@ class NetworkWidget(QWidget):
         self._refresh()
 
     def _refresh(self):
-        if not self.monitor:
-            return
+        peers = []
+        interfaces = {}
+        paths = {}
 
-        peers = self.monitor.get_peers()
-        interfaces = self.monitor.get_interfaces()
-        paths = self.monitor.get_paths()
+        if self.monitor:
+            peers = self.monitor.get_peers()
+            interfaces = self.monitor.get_interfaces()
+            paths = self.monitor.get_paths()
+
+        if not interfaces and self.rns_node:
+            for iface in self.rns_node.get_interfaces():
+                interfaces[iface["name"]] = iface
 
         self.peer_tree.clear()
         for p in peers:
@@ -136,8 +142,7 @@ class NetworkWidget(QWidget):
         self.iface_tree.clear()
         for name, info in interfaces.items():
             online = info.get("online", False)
-            dot_color = MeshTheme.SUCCESS if online else MeshTheme.TEXT_DIM
-            status = f"● {'Online' if online else 'Offline'}"
+            status = f"{'Online' if online else 'Offline'}"
             item = QTreeWidgetItem([
                 name,
                 info.get("type", ""),
@@ -145,17 +150,20 @@ class NetworkWidget(QWidget):
                 self._fmt_bytes(info.get("bytes_in", 0)),
                 self._fmt_bytes(info.get("bytes_out", 0)),
             ])
-            item.setForeground(2, Qt.GlobalColor.green if online else Qt.GlobalColor.gray)
+            if online:
+                item.setForeground(2, Qt.GlobalColor.green)
+            else:
+                item.setForeground(2, Qt.GlobalColor.gray)
             self.iface_tree.addTopLevelItem(item)
 
         path_lines = []
         for dest, hops in paths.items():
             hops_str = f"{hops} hop{'s' if hops != 1 else ''}" if isinstance(hops, int) else str(len(hops))
-            path_lines.append(f"{dest[:16]}... → {hops_str}")
+            path_lines.append(f"{dest[:16]}... -> {hops_str}")
         self.path_text.setPlainText("\n".join(path_lines) if path_lines else "No paths discovered yet")
 
         self.network_empty.setVisible(len(peers) == 0)
-        self.status_label.setText(f"Monitoring — {len(peers)} peers, {len(interfaces)} interfaces, {len(paths)} paths")
+        self.status_label.setText(f"Monitoring -- {len(peers)} peers, {len(interfaces)} interfaces, {len(paths)} paths")
 
     def _fmt_time(self, ts: float) -> str:
         if not ts:

@@ -3,7 +3,6 @@
 import json
 import sys
 import time
-import threading
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -149,23 +148,10 @@ class Application:
                 )
                 self.network_monitor.start()
 
-                self._start_auto_announce()
-
         except Exception as e:
             print(f"Backend initialization error: {e}")
             import traceback
             traceback.print_exc()
-
-    def _start_auto_announce(self):
-        def loop():
-            time.sleep(3)
-            while True:
-                display_name = self.get_display_name()
-                if self.lxmf_messenger:
-                    self.lxmf_messenger.announce(display_name)
-                time.sleep(60)
-        t = threading.Thread(target=loop, daemon=True)
-        t.start()
 
     def announce_now(self):
         display_name = self.get_display_name()
@@ -201,8 +187,6 @@ class Application:
 
         if self.lxmf_messenger:
             self.lxmf_messenger.set_message_callback(self._on_lxmf_message)
-
-        self.announce_now()
 
         sys.exit(app.exec())
 

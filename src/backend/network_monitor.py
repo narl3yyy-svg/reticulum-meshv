@@ -2,9 +2,22 @@
 
 import time
 import threading
-from pathlib import Path
 from typing import Optional
 import RNS
+
+
+class AnnounceHandler:
+    """RNS announce handler that filters by aspect and forwards to callback."""
+
+    def __init__(self, aspect_filter, callback):
+        self.aspect_filter = aspect_filter
+        self._callback = callback
+
+    def received_announce(self, destination_hash, announced_identity, app_data, announce_packet_hash=None):
+        try:
+            self._callback(destination_hash, announced_identity, app_data)
+        except Exception as e:
+            print(f"[Network] Announce handler error: {e}")
 
 
 class NetworkMonitor:
@@ -17,6 +30,7 @@ class NetworkMonitor:
         self._running = False
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
+        self._announce_handlers = []
 
     def start(self):
         if self._running:
@@ -24,10 +38,14 @@ class NetworkMonitor:
         self._running = True
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
-        try:
-            RNS.Transport.register_announce_handler(self._on_announce)
-        except:
-            pass
+
+        for aspect in ["lxmf.delivery", "lxmf.propagation", "lxst.telephony", "nomadnetwork.node"]:
+            try:
+                handler = AnnounceHandler(aspect, self._on_announce)
+                RNS.Transport.register_announce_handler(handler)
+                self._announce_handlers.append(handler)
+            except:
+                pass
 
     def stop(self):
         self._running = False
@@ -58,6 +76,7 @@ class NetworkMonitor:
 
     def _scan_paths(self):
         with self._lock:
+            self.paths.clear()
             try:
                 for dest_hash in RNS.Transport.destinations:
                     hops = RNS.Transport.hops_to(dest_hash)
@@ -69,19 +88,19 @@ class NetworkMonitor:
     def _on_announce(self, destination_hash, announced_identity, app_data):
         if not announced_identity:
             return
-        hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else destination_hash.hex()
-        hash_hex_str = hash_hex
+        hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else str(destination_hash)
         app_data_str = app_data.decode("utf-8", errors="replace") if isinstance(app_data, bytes) else (
             str(app_data) if app_data else ""
         )
         with self._lock:
-            self.peers[hash_hex_str] = {
-                "hash": hash_hex_str,
-                "hash_short": hash_hex_str[:12],
-                "first_seen": self.peers.get(hash_hex_str, {}).get("first_seen", time.time()),
+            self.peers[hash_hex] = {
+                "hash": hash_hex,
+                "hash_short": hash_hex[:12],
+                "first_seen": self.peers.get(hash_hex, {}).get("first_seen", time.time()),
                 "last_seen": time.time(),
                 "app_data": app_data_str,
             }
+        print(f"[Network] Announce received from {hash_hex[:16]}... ({app_data_str})")
 
     def get_peers(self) -> list:
         with self._lock:
@@ -94,61 +113,3 @@ class NetworkMonitor:
     def get_paths(self) -> dict:
         with self._lock:
             return {k: v for k, v in self.paths.items()}
-
-    def register_peer(self, hash_hex: str, name: str = ""):
-        with self._lock:
-            existing = self.peers.get(hash_hex, {})
-            self.peers[hash_hex] = {
-                "hash": hash_hex,
-                "hash_short": hash_hex[:12],
-                "first_seen": existing.get("first_seen", time.time()),
-                "last_seen": time.time(),
-                "app_data": name or hash_hex[:12],
-                "source": "bridge",
-            }
-
-    def get_network_graph(self) -> dict:
-        nodes = []
-        edges = []
-
-        with self._lock:
-            my_hash = self.identity.hash.hex() if self.identity else ""
-            nodes.append({
-                "id": my_hash,
-                "label": "You",
-                "type": "self",
-                "group": 0,
-            })
-
-            for h, info in self.peers.items():
-                nodes.append({
-                    "id": h,
-                    "label": info.get("app_data", h[:12]),
-                    "type": "peer",
-                    "group": 1,
-                })
-
-            for dest, hops in self.paths.items():
-                if dest != my_hash:
-                    edges.append({
-                        "source": my_hash,
-                        "target": dest,
-                        "hops": len(hops) if isinstance(hops, list) else hops,
-                    })
-
-            for name, info in self.interfaces.items():
-                nid = f"iface:{name}"
-                nodes.append({
-                    "id": nid,
-                    "label": name,
-                    "type": "interface",
-                    "group": 2,
-                    "online": info.get("online", False),
-                })
-                edges.append({
-                    "source": my_hash,
-                    "target": nid,
-                    "hops": 0,
-                })
-
-        return {"nodes": nodes, "edges": edges}

@@ -5,6 +5,20 @@ from pathlib import Path
 import time
 
 
+class NodeAnnounceHandler:
+    """RNS announce handler for the node."""
+
+    def __init__(self, callback):
+        self.aspect_filter = None
+        self._callback = callback
+
+    def received_announce(self, destination_hash, announced_identity, app_data, announce_packet_hash=None):
+        try:
+            self._callback(destination_hash, announced_identity, app_data)
+        except:
+            pass
+
+
 class ReticulumNode:
     def __init__(self, rns_config_dir: str, app_config_dir: str):
         self.rns_config_dir = Path(rns_config_dir)
@@ -22,7 +36,8 @@ class ReticulumNode:
             self.identity = self._load_or_create_identity()
 
             try:
-                RNS.Transport.register_announce_handler(self._announce_received)
+                handler = NodeAnnounceHandler(self._announce_received)
+                RNS.Transport.register_announce_handler(handler)
             except:
                 pass
 
