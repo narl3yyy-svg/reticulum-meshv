@@ -214,7 +214,7 @@ class InterfacesWidget(QWidget):
         self.server_port = QLineEdit("4242")
         self.server_port.setMaximumWidth(70)
         self.server_port.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
-        server_row.addWidget(server_port)
+        server_row.addWidget(self.server_port)
 
         add_server_btn = QPushButton("Add TCP Server")
         add_server_btn.clicked.connect(self._add_tcp_server)
