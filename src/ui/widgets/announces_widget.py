@@ -182,9 +182,10 @@ class AnnouncesWidget(QWidget):
         self.announces_empty.setVisible(len(peers) == 0)
 
     def _announce_myself(self):
-        if self.backend.lxmf_messenger:
-            self.backend.lxmf_messenger.announce()
-        elif self.backend.rns_node:
+        lxmf = getattr(self.backend, 'lxmf_messenger', None)
+        if lxmf:
+            lxmf.announce()
+        elif getattr(self.backend, 'rns_node', None):
             self.backend.rns_node.announce_myself()
         if hasattr(self, 'statusBar') and callable(self.statusBar):
             self.statusBar().showMessage("Announced on network", 3000)

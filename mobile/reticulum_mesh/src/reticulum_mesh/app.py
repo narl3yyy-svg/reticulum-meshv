@@ -69,65 +69,99 @@ def hrule():
     return b
 
 
-class MeshNode:
+class MeshConfig:
     def __init__(self):
-        self.reticulum = None
+        self.data = self._load()
+
+    def _load(self):
+        try:
+            p = LOCAL / "config.json"
+            return json.loads(p.read_text()) if p.exists() else {}
+        except:
+            return {}
+
+    def _save(self):
+        LOCAL.mkdir(parents=True, exist_ok=True)
+        (LOCAL / "config.json").write_text(json.dumps(self.data, indent=2))
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
+    def set(self, key, value):
+        self.data[key] = value
+        self._save()
+
+
+class MeshIdentity:
+    def __init__(self):
         self.identity = None
         self.identity_hash = ""
-        self.rns_enabled = False
+        self.rns_key_path = LOCAL / "rns_identity.key"
+        self.fallback_path = LOCAL / "identity_hex.txt"
+        self._init()
+
+    def _init(self):
+        LOCAL.mkdir(parents=True, exist_ok=True)
+        if _RNS:
+            self._init_rns()
+        else:
+            self._init_fallback()
+
+    def _init_rns(self):
+        i = None
+        if self.rns_key_path.exists():
+            try:
+                i = _RNS.Identity.from_file(str(self.rns_key_path))
+            except:
+                pass
+        if not i or not i.hash:
+            i = _RNS.Identity()
+            i.to_file(str(self.rns_key_path))
+        self.identity = i
+        self.identity_hash = i.hash.hex()
+
+    def _init_fallback(self):
+        h = ""
+        if self.fallback_path.exists():
+            try:
+                v = self.fallback_path.read_text().strip()
+                if len(v) == 64:
+                    h = v
+            except:
+                pass
+        if not h:
+            h = os.urandom(32).hex()
+            try:
+                self.fallback_path.write_text(h)
+            except:
+                pass
+        self.identity_hash = h
+
+    def get_hash(self):
+        return self.identity_hash
+
+    def get_rns_identity(self):
+        return self.identity
+
+    def has_rns(self):
+        return self.identity is not None
+
+
+class MeshRNS:
+    def __init__(self, identity, config):
+        self.identity = identity
+        self.config = config
+        self.reticulum = None
+        self.enabled = False
+        self.announce_handler_registered = False
         self.discovered_peers = {}
         self.announces = []
         self.interfaces = []
-        self.messages = {}
-        self.config = self._lj("config.json", {"host": "", "port": 4741, "mode": "rns"})
+        self._lxmf_router = None
+        self._lxmf_source = None
         self.cfg_dir = str(LOCAL / "reticulum")
-        self._ann_h = False
-        self.bridge = None
-        self._init_id()
 
-    def _lj(self, name, default):
-        try:
-            p = LOCAL / name
-            return json.loads(p.read_text()) if p.exists() else default
-        except:
-            return default
-
-    def _sj(self, name, data):
-        LOCAL.mkdir(parents=True, exist_ok=True)
-        (LOCAL / name).write_text(json.dumps(data, indent=2))
-
-    def _init_id(self):
-        LOCAL.mkdir(parents=True, exist_ok=True)
-        if _RNS:
-            p = LOCAL / "mobile_identity.key"
-            if p.exists():
-                try:
-                    i = _RNS.Identity.from_file(str(p))
-                    if i and i.hash:
-                        self.identity_hash = i.hash.hex()
-                        return
-                except:
-                    pass
-            i = _RNS.Identity()
-            i.to_file(str(p))
-            self.identity_hash = i.hash.hex()
-        else:
-            p = LOCAL / "identity.txt"
-            if p.exists():
-                try:
-                    v = p.read_text().strip()
-                    if len(v) == 64:
-                        self.identity_hash = v
-                        return
-                except:
-                    pass
-            self.identity_hash = os.urandom(32).hex()
-            try:
-                p.write_text(self.identity_hash)
-            except:
-                pass
-
-    def _ensure_cfg(self, host, port):
+    def _ensure_config(self, host, port):
         d = Path(self.cfg_dir)
         for s in ["", "storage", "storage/cache", "storage/resources",
                    "storage/identities", "storage/blackhole", "interfaces"]:
@@ -149,14 +183,13 @@ loglevel = 3
     target_port = {port}
 """)
 
-    def enable_rns(self, host, port=4741):
+    def enable(self, host, port=4741):
         if _RNS is None:
             return False, "RNS not available"
-        if self.rns_enabled:
+        if self.enabled:
             return True, "already enabled"
         try:
-            self._ensure_cfg(host, port)
-            self.cfg_dir = str(LOCAL / "reticulum")
+            self._ensure_config(host, port)
             import signal as _s
             _o = _s.signal
             _s.signal = lambda s, h: None
@@ -164,43 +197,44 @@ loglevel = 3
                 self.reticulum = _RNS.Reticulum(configdir=self.cfg_dir)
             finally:
                 _s.signal = _o
-            self.identity = self._load_rns_id()
-            if self.identity:
-                self.identity_hash = self.identity.hash.hex()
-            if not self._ann_h:
-                try:
-                    _RNS.Transport.register_announce_handler(self._on_ann)
-                    self._ann_h = True
-                except:
-                    pass
-            self.rns_enabled = True
-            self._ri()
+            rns_id = self.identity.get_rns_identity()
+            if rns_id:
+                if not self.announce_handler_registered:
+                    try:
+                        _RNS.Transport.register_announce_handler(self._on_announce)
+                        self.announce_handler_registered = True
+                    except:
+                        pass
+                self._init_lxmf(rns_id)
+            self.enabled = True
+            self._refresh_interfaces()
             return True, "Reticulum enabled"
         except Exception as e:
             log(f"RNS init fail: {e}")
-            import traceback
-            traceback.print_exc()
             return False, str(e)
 
-    def _load_rns_id(self):
-        p = LOCAL / "rns_identity.key"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        if p.exists():
-            try:
-                i = _RNS.Identity.from_file(str(p))
-                if i and i.hash:
-                    return i
-            except:
-                pass
-            try:
-                p.unlink(missing_ok=True)
-            except:
-                pass
-        i = _RNS.Identity()
-        i.to_file(str(p))
-        return i
+    def _init_lxmf(self, identity):
+        if _LXMF is None:
+            return
+        try:
+            self._lxmf_router = _LXMF.LXMRouter(
+                identity=identity,
+                storagepath=str(LOCAL / "lxmf")
+            )
+            self._lxmf_router.register_delivery_identity(
+                identity, display_name="RMESHV Mobile"
+            )
+            self._lxmf_source = _RNS.Destination(
+                identity,
+                _RNS.Destination.OUT,
+                _RNS.Destination.SINGLE,
+                "lxmf",
+                "delivery"
+            )
+        except Exception as e:
+            log(f"LXMF init fail: {e}")
 
-    def _on_ann(self, dest_hash, announced_identity, app_data):
+    def _on_announce(self, dest_hash, announced_identity, app_data):
         if not announced_identity:
             return
         h = dest_hash.hex() if hasattr(dest_hash, 'hex') else dest_hash
@@ -210,7 +244,7 @@ loglevel = 3
         self.announces.append({"hash": h, "name": name, "time": n})
         self.discovered_peers[h] = {"name": name, "last_seen": n}
 
-    def _ri(self):
+    def _refresh_interfaces(self):
         self.interfaces = []
         try:
             for iface in _RNS.Reticulum.interfaces:
@@ -222,48 +256,6 @@ loglevel = 3
         except:
             pass
 
-    def announce(self):
-        if self.rns_enabled and self.identity:
-            try:
-                d = _RNS.Destination(self.identity, _RNS.Destination.IN,
-                                     _RNS.Destination.SINGLE, "rmeshv", "presence")
-                dn = self.config.get("display_name", "").encode("utf-8")
-                d.announce(dn)
-                return True
-            except Exception as e:
-                log(f"announce fail: {e}")
-        return False
-
-    def send_text(self, dest_hex, text):
-        if not self.rns_enabled or not self.identity:
-            return False
-        try:
-            db = bytes.fromhex(dest_hex)
-            rid = _RNS.Identity.recall(db)
-            if not rid:
-                rid = _RNS.Identity()
-                rid.hash = db
-            if _LXMF:
-                if not hasattr(self, '_lxmf_router') or self._lxmf_router is None:
-                    self._lxmf_router = _LXMF.LXMRouter(identity=self.identity)
-                r = self._lxmf_router
-                dd = _RNS.Destination(rid, _RNS.Destination.OUT,
-                                      _RNS.Destination.SINGLE, "lxmf", "delivery")
-                m = _LXMF.LXMessage(dd, self.identity, content=text.encode("utf-8"))
-                r.handle_outbound(m)
-            else:
-                dd = _RNS.Destination(rid, _RNS.Destination.OUT,
-                                      _RNS.Destination.SINGLE, "rmeshv", "msg")
-                dd.set_proof_strategy(_RNS.Destination.PROVE_ALL)
-                _RNS.Resource(text.encode("utf-8"), dd)
-            cid = dest_hex
-            if cid not in self.messages:
-                self.messages[cid] = []
-            self.messages[cid].append({"from": "me", "text": text, "ts": time.time()})
-            return True
-        except:
-            return False
-
     def get_peers(self):
         return list(self.discovered_peers.items())
 
@@ -271,28 +263,85 @@ loglevel = 3
         return list(self.announces)
 
     def get_interfaces(self):
-        self._ri()
+        self._refresh_interfaces()
         return list(self.interfaces)
 
-    def hs(self, h):
-        return h[:16] if len(h) > 16 else h
+    def announce(self, display_name=""):
+        rns_id = self.identity.get_rns_identity()
+        if self.enabled and rns_id:
+            try:
+                d = _RNS.Destination(rns_id, _RNS.Destination.IN,
+                                     _RNS.Destination.SINGLE, "rmeshv", "presence")
+                dn = display_name.encode("utf-8") if display_name else None
+                d.announce(dn)
+                return True
+            except Exception as e:
+                log(f"announce fail: {e}")
+        return False
 
-    # ─── TCP Bridge fallback ────────────────────────────
-    def bridge_connect(self, host, port):
-        self.disconnect_bridge()
+    def send_text(self, dest_hex, text):
+        rns_id = self.identity.get_rns_identity()
+        if not self.enabled or not rns_id:
+            return False
+        try:
+            db = bytes.fromhex(dest_hex)
+            rid = _RNS.Identity.recall(db)
+            if not rid:
+                rid = _RNS.Identity()
+                rid.hash = db
+            if _LXMF and self._lxmf_router and self._lxmf_source:
+                dd = _RNS.Destination(rid, _RNS.Destination.OUT,
+                                      _RNS.Destination.SINGLE, "lxmf", "delivery")
+                dd.set_proof_strategy(_RNS.Destination.PROVE_ALL)
+                m = _LXMF.LXMessage(dd, self._lxmf_source,
+                                    content=text.encode("utf-8"))
+                self._lxmf_router.handle_outbound(m)
+            else:
+                dd = _RNS.Destination(rid, _RNS.Destination.OUT,
+                                      _RNS.Destination.SINGLE, "rmeshv", "msg")
+                dd.set_proof_strategy(_RNS.Destination.PROVE_ALL)
+                _RNS.Resource(text.encode("utf-8"), dd)
+            return True
+        except Exception as e:
+            log(f"send_text fail: {e}")
+            return False
+
+    def disable(self):
+        self.enabled = False
+        self.reticulum = None
+
+
+class MeshBridge:
+    def __init__(self, identity, config):
+        self.identity = identity
+        self.config = config
+        self.sock = None
+        self.running = False
+        self.rx_thread = None
+        self.messages = {}
+        self.discovered_peers = {}
+        self._lock = threading.Lock()
+
+    @property
+    def connected(self):
+        return self.sock is not None and self.running
+
+    def connect(self, host, port):
+        self.disconnect()
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(5)
             s.connect((host, port))
             s.settimeout(None)
-            self.bridge = {"sock": s, "running": True}
-            hello_msg = {"type": "hello", "identity": self.identity_hash}
-            if self.rns_enabled and self.identity:
-                hello_msg["rns_identity"] = self.identity.hash.hex()
-            self._send_bridge(hello_msg)
-            t = threading.Thread(target=self._bridge_rx, daemon=True)
-            t.start()
-            # Try to read welcome
+            self.sock = s
+            self.running = True
+            hello = {"type": "hello", "identity": self.identity.get_hash()}
+            rns_id = self.identity.get_rns_identity()
+            if rns_id:
+                hello["rns_identity"] = rns_id.hash.hex()
+            self._send(hello)
+            self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
+            self.rx_thread.start()
             s.settimeout(3)
             try:
                 data = b""
@@ -313,28 +362,39 @@ loglevel = 3
             log(f"Bridge connect fail: {e}")
             return False
 
-    def disconnect_bridge(self):
-        if self.bridge:
-            self.bridge["running"] = False
+    def disconnect(self):
+        self.running = False
+        if self.sock:
             try:
-                self.bridge["sock"].close()
+                self.sock.close()
             except:
                 pass
-            self.bridge = None
+            self.sock = None
 
-    def _send_bridge(self, data):
-        if not self.bridge:
+    def _send(self, data):
+        if not self.sock:
             return
         try:
-            self.bridge["sock"].sendall((json.dumps(data) + "\n").encode())
+            self.sock.sendall((json.dumps(data) + "\n").encode())
         except:
-            self.disconnect_bridge()
+            self.disconnect()
 
-    def _bridge_rx(self):
+    def send_message(self, to_hash, text, timestamp=None):
+        self._send({
+            "type": "message",
+            "to": to_hash,
+            "text": text,
+            "timestamp": timestamp or time.time(),
+        })
+
+    def send_announce(self):
+        self._send({"type": "announce"})
+
+    def _rx_loop(self):
         buf = b""
-        while self.bridge and self.bridge.get("running"):
+        while self.running and self.sock:
             try:
-                c = self.bridge["sock"].recv(4096)
+                c = self.sock.recv(4096)
                 if not c:
                     break
                 buf += c
@@ -342,27 +402,41 @@ loglevel = 3
                     line, buf = buf.split(b"\n", 1)
                     try:
                         msg = json.loads(line.decode())
-                        self._handle_bridge_msg(msg)
+                        self._handle(msg)
                     except:
                         pass
             except:
                 time.sleep(0.05)
-        self.disconnect_bridge()
+        self.disconnect()
 
-    def _handle_bridge_msg(self, msg):
+    def _handle(self, msg):
         t = msg.get("type", "")
         if t == "message":
             f = msg.get("from", msg.get("from_hash", "?"))
             tx = msg.get("text", "")
             cid = f
-            if cid not in self.messages:
-                self.messages[cid] = []
-            self.messages[cid].append({"from": cid[:16], "text": tx, "ts": msg.get("timestamp", time.time())})
+            with self._lock:
+                if cid not in self.messages:
+                    self.messages[cid] = []
+                self.messages[cid].append({"from": cid[:16], "text": tx, "ts": msg.get("timestamp", time.time())})
         elif t == "peers":
             for p in msg.get("peers", []):
                 h = p.get("hash", "")
                 if h:
                     self.discovered_peers[h] = {"name": p.get("name", h[:12]), "last_seen": time.time()}
+        elif t == "announce":
+            pass
+
+    def get_messages(self, cid):
+        with self._lock:
+            return self.messages.pop(cid, [])
+
+    def get_peers(self):
+        return list(self.discovered_peers.items())
+
+    def clear_messages(self, cid):
+        with self._lock:
+            self.messages.pop(cid, None)
 
 
 # ─── Base screen with dark styling ────────────────────
@@ -374,8 +448,30 @@ class DarkBox(Box):
         self.style.background_color = C_BG
 
 
+class PollingMixin:
+    """Mixin that provides a persistent daemon poll thread instead of threading.Timer."""
+
+    def start_poll(self, interval, callback):
+        self._poll_interval = interval
+        self._poll_callback = callback
+        self._poll_stop = threading.Event()
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
+
+    def stop_poll(self):
+        self._poll_stop.set()
+
+    def _poll_loop(self):
+        while not self._poll_stop.is_set():
+            try:
+                self._poll_callback()
+            except:
+                pass
+            self._poll_stop.wait(self._poll_interval)
+
+
 # ─── Messages ──────────────────────────────────────────
-class MessagesScreen(DarkBox):
+class MessagesScreen(DarkBox, PollingMixin):
     def __init__(self, app_ref, node):
         super().__init__()
         self.style.margin = 6
@@ -427,24 +523,25 @@ class MessagesScreen(DarkBox):
         ir.add(sb)
         self.add(ir)
 
-        self._poll()
-
-    def _poll(self):
-        self._check_incoming()
-        threading.Timer(1.0, self._poll).start()
+        self.start_poll(1.0, self._check_incoming)
 
     def _check_incoming(self):
         if not self.node:
             return
-        for cid, msgs in list(self.node.messages.items()):
-            if cid == self.cdest or not self.cdest:
-                for m in msgs:
-                    if m.get("from") != "me":
-                        self.add_bubble(f"[{m['from'][:12]}] {m['text']}", is_sent=False)
-                self.node.messages[cid] = []
-            else:
-                # Has messages for another conversation
+        rns = self.node.rns
+        bridge = self.node.bridge
+        msgs = {}
+        if rns and rns.enabled:
+            for cid in list(rns.discovered_peers.keys()):
                 pass
+        if bridge and bridge.connected:
+            for cid, msg_list in list(bridge.messages.items()):
+                with bridge._lock:
+                    msgs[cid] = bridge.messages.pop(cid, [])
+        for cid, mlist in msgs.items():
+            if cid == self.cdest or not self.cdest:
+                for m in mlist:
+                    self.add_bubble(f"[{m['from'][:12]}] {m['text']}", is_sent=False)
 
     def start_chat(self, widget):
         d = "".join(c for c in self.di.value.strip() if c in "0123456789abcdefABCDEF").lower()
@@ -480,11 +577,14 @@ class MessagesScreen(DarkBox):
         lbl = "desktop" if not self.cdest else f"{self.cdest[:12]}..."
         self.add_bubble(f"To {lbl}: {t}", is_sent=True)
         self.inp.value = ""
-        if self.node:
-            if self.node.rns_enabled and self.cdest:
-                self.node.send_text(self.cdest, t)
-            elif self.node.bridge:
-                self.node._send_bridge({"type": "message", "to": self.cdest, "text": t, "timestamp": time.time()})
+        if not self.node:
+            return
+        rns = self.node.rns
+        bridge = self.node.bridge
+        if rns and rns.enabled and self.cdest:
+            rns.send_text(self.cdest, t)
+        elif bridge and bridge.connected:
+            bridge.send_message(self.cdest, t)
 
 
 # ─── Contacts ──────────────────────────────────────────
@@ -513,11 +613,15 @@ class ContactsScreen(DarkBox):
     def do_ann(self, widget):
         if not self.node:
             return
-        if self.node.rns_enabled:
-            ok = self.node.announce()
+        rns = self.node.rns
+        bridge = self.node.bridge
+        cfg = self.node.config
+        display_name = cfg.get("display_name", "")
+        if rns and rns.enabled:
+            ok = rns.announce(display_name)
             self.st.text = "Announced via RNS!" if ok else "Failed"
-        elif self.node.bridge:
-            self.node._send_bridge({"type": "announce"})
+        elif bridge and bridge.connected:
+            bridge.send_announce()
             self.st.text = "Announced via bridge!"
         else:
             self.st.text = "Not connected"
@@ -526,16 +630,24 @@ class ContactsScreen(DarkBox):
         if not self.node:
             self.pl.text = "No node"
             return
-        peers = self.node.get_peers()
+        peers = {}
+        rns = self.node.rns
+        bridge = self.node.bridge
+        if rns and rns.enabled:
+            for h, p in rns.get_peers():
+                peers[h] = p
+        if bridge and bridge.connected:
+            for h, p in bridge.get_peers():
+                peers[h] = p
         if peers:
-            self.pl.text = "\n".join(f"{h[:12]}... {p['name']}" for h, p in peers[:10])
+            self.pl.text = "\n".join(f"{h[:12]}... {p['name']}" for h, p in list(peers.items())[:10])
         else:
             self.pl.text = "No peers discovered"
         self.st.text = f"{len(peers)} peer(s)"
 
 
 # ─── Announces ─────────────────────────────────────────
-class AnnouncesScreen(DarkBox):
+class AnnouncesScreen(DarkBox, PollingMixin):
     def __init__(self, node):
         super().__init__()
         self.style.margin = 10
@@ -547,16 +659,13 @@ class AnnouncesScreen(DarkBox):
         rb.style.background_color = C_SURFACE2
         rb.style.color = C_TEXT
         self.add(rb)
-        self._poll()
+        self.start_poll(3.0, self.ref)
 
-    def _poll(self):
-        self.ref(None)
-        threading.Timer(3.0, self._poll).start()
-
-    def ref(self, widget):
+    def ref(self, widget=None):
         if not self.node:
             return
-        ans = self.node.get_announces()
+        rns = self.node.rns
+        ans = rns.get_announces() if rns and rns.enabled else []
         if ans:
             self.an_lbl.text = "\n".join(
                 f"{a['name'][:20]}  {a['hash'][:12]}" for a in ans[-10:][::-1]
@@ -582,7 +691,8 @@ class InterfacesScreen(DarkBox):
     def ref(self, widget):
         if not self.node:
             return
-        ifaces = self.node.get_interfaces()
+        rns = self.node.rns
+        ifaces = rns.get_interfaces() if rns and rns.enabled else []
         if ifaces:
             self.il.text = "\n".join(
                 f"{i['name'][:20]}  {i['type'][:15]}  {'ON' if i['online'] else 'OFF'}"
@@ -611,11 +721,13 @@ class NetworkScreen(DarkBox):
     def ref(self, widget):
         if not self.node:
             return
-        h = self.node.identity_hash
+        h = self.node.identity.get_hash()
         self.id_lbl.text = f"Identity:\n{h[:32]}..." if h else "Identity:\nN/A"
-        if self.node.rns_enabled:
-            self.st_lbl.text = f"RNS: ON | Peers: {len(self.node.get_peers())}"
-        elif self.node.bridge:
+        rns = self.node.rns
+        bridge = self.node.bridge
+        if rns and rns.enabled:
+            self.st_lbl.text = f"RNS: ON | Peers: {len(rns.get_peers())}"
+        elif bridge and bridge.connected:
             self.st_lbl.text = "Bridge: connected"
         else:
             self.st_lbl.text = "Not connected"
@@ -674,13 +786,12 @@ class SettingsScreen(DarkBox):
 
         self.add(hrule())
 
-        self.add(ml(f"ID: {self.node.identity_hash[:16]}...", size=10, color=C_TEXT_DIM, mb=4))
+        self.add(ml(f"ID: {self.node.identity.get_hash()[:16]}...", size=10, color=C_TEXT_DIM, mb=4))
         self.add(ml("RMESHV v1.0.0", size=10, color=C_TEXT_DIM))
         self.add(ml("Reticulum " + (getattr(_RNS, "__version__", "?") if _RNS else "N/A"),
                      size=9, color=C_TEXT_DIM))
 
-        # Load saved config
-        c = self.node.config
+        c = self.node.config.data
         if c.get("host"):
             self.hi.value = c["host"]
         if c.get("port"):
@@ -700,17 +811,18 @@ class SettingsScreen(DarkBox):
             self.st.text = "Enter host IP"
             return
         self.st.text = "Starting RNS over TCP..."
-        self.node.config["host"] = host
-        self.node.config["port"] = port
-        self.node.config["mode"] = "rns"
-        self.node._sj("config.json", self.node.config)
-        if self.node.bridge:
-            self.node.disconnect_bridge()
-        ok, msg = self.node.enable_rns(host, port)
+        self.node.config.set("host", host)
+        self.node.config.set("port", port)
+        self.node.config.set("mode", "rns")
+        bridge = self.node.bridge
+        if bridge and bridge.connected:
+            bridge.disconnect()
+        rns = self.node.rns
+        ok, msg = rns.enable(host, port)
         if ok:
             self.st.text = f"RNS enabled! via {host}:{port}"
             self.st.color = C_SUCCESS
-            self.node.announce()
+            rns.announce(self.node.config.get("display_name", ""))
         else:
             self.st.text = f"RNS failed: {msg}"
             self.st.color = C_WARN
@@ -727,11 +839,11 @@ class SettingsScreen(DarkBox):
             self.st.text = "Enter host IP"
             return
         self.st.text = "Connecting bridge..."
-        self.node.config["host"] = host
-        self.node.config["port"] = port
-        self.node.config["mode"] = "bridge"
-        self.node._sj("config.json", self.node.config)
-        ok = self.node.bridge_connect(host, port)
+        self.node.config.set("host", host)
+        self.node.config.set("port", port)
+        self.node.config.set("mode", "bridge")
+        bridge = self.node.bridge
+        ok = bridge.connect(host, port)
         if ok:
             self.st.text = f"Bridge connected! {host}:{port}"
             self.st.color = C_SUCCESS
@@ -740,13 +852,82 @@ class SettingsScreen(DarkBox):
             self.st.color = C_WARN
 
 
+# ─── Background worker ─────────────────────────────────
+class BackgroundWorker:
+    """Single background thread for bridge reconnection and periodic announces."""
+
+    def __init__(self, node):
+        self.node = node
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                node = self.node
+                config = node.config
+                bridge = node.bridge
+
+                auto_mode = config.get("mode", "")
+                auto_host = config.get("host", "")
+                auto_port = config.get("port", "")
+
+                if auto_mode == "bridge" and auto_host:
+                    rns = node.rns
+                    if not bridge.connected and not (rns and rns.enabled):
+                        port = auto_port if auto_port else 4742
+                        try:
+                            port = int(port)
+                        except:
+                            port = 4742
+                        log(f"Auto-reconnect bridge to {auto_host}:{port}")
+                        bridge.connect(auto_host, port)
+
+                if bridge.connected:
+                    bridge.send_announce()
+            except:
+                pass
+            self._stop.wait(30)
+
+
 # ─── Main App ──────────────────────────────────────────
 class ReticulumMeshApp(App):
     def startup(self):
         self._running = True
         self.main_window = MainWindow(title="RMESHV")
         self.main_window.style.background_color = C_BG
-        self.node = MeshNode()
+
+        self.config = MeshConfig()
+        self.identity = MeshIdentity()
+        self.rns = MeshRNS(self.identity, self.config)
+        self.bridge = MeshBridge(self.identity, self.config)
+
+        self.node = self  # backwards compat for screens that reference self.node
+
+        self.worker = BackgroundWorker(self)
+
+        auto_mode = self.config.get("mode", "")
+        auto_host = self.config.get("host", "")
+        auto_port = self.config.get("port", "")
+
+        if auto_mode == "rns" and auto_host:
+            try:
+                port = int(auto_port) if auto_port else 4741
+            except:
+                port = 4741
+            log(f"Auto-connect RNS to {auto_host}:{port}")
+            self.rns.enable(auto_host, port)
+        elif auto_mode == "bridge" and auto_host:
+            try:
+                port = int(auto_port) if auto_port else 4742
+            except:
+                port = 4742
+            log(f"Auto-connect bridge to {auto_host}:{port}")
+            self.bridge.connect(auto_host, port)
 
         self.content = Box()
         self.content.style.direction = COLUMN
@@ -777,23 +958,28 @@ class ReticulumMeshApp(App):
         self.main_window.show()
         self.ss("chat")
 
+        if self.rns.enabled:
+            self.rns.announce(self.config.get("display_name", ""))
+
     def ss(self, name):
         self.sc.clear()
         m = {
-            "chat": lambda: MessagesScreen(self, self.node),
-            "cnt": lambda: ContactsScreen(self.node),
-            "ann": lambda: AnnouncesScreen(self.node),
-            "iface": lambda: InterfacesScreen(self.node),
-            "net": lambda: NetworkScreen(self.node),
-            "set": lambda: SettingsScreen(self.node, self),
+            "chat": lambda: MessagesScreen(self, self),
+            "cnt": lambda: ContactsScreen(self),
+            "ann": lambda: AnnouncesScreen(self),
+            "iface": lambda: InterfacesScreen(self),
+            "net": lambda: NetworkScreen(self),
+            "set": lambda: SettingsScreen(self, self),
         }
-        s = m.get(name, lambda: MessagesScreen(self, self.node))()
+        s = m.get(name, lambda: MessagesScreen(self, self))()
         self.sc.add(s)
 
     def exit(self):
         self._running = False
-        if self.node:
-            self.node.disconnect_bridge()
+        if self.bridge:
+            self.bridge.disconnect()
+        if self.worker:
+            self.worker.stop()
         return super().exit()
 
 

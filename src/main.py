@@ -202,6 +202,8 @@ class Application:
                 print(f"Error delivering LXMF message to UI: {e}")
 
     def _on_bridge_message(self, sender_hash: str, text: str, timestamp: float):
+        if not sender_hash:
+            return
         if self.main_window and hasattr(self.main_window, "messages_widget"):
             try:
                 self.main_window.messages_widget.receive_lxmf_message(sender_hash, text, "", timestamp)

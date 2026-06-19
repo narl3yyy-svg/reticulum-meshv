@@ -13,7 +13,7 @@ class IdentitiesWidget(QWidget):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.identity_mgr = backend.identity_manager
+        self.identity_mgr = getattr(backend, 'identity_manager', None)
         self.rns_node = backend.rns_node
 
         layout = QVBoxLayout(self)
@@ -124,6 +124,8 @@ class IdentitiesWidget(QWidget):
             self.identity_list.addItem(item)
 
     def _create_identity(self):
+        if not self.identity_mgr:
+            return
         name, ok = QInputDialog.getText(self, "New Identity", "Name (optional):")
         if ok:
             self.identity_mgr.create_identity(name=name.strip())
@@ -131,6 +133,8 @@ class IdentitiesWidget(QWidget):
             QMessageBox.information(self, "Created", "New identity created. Switch to it and restart to use.")
 
     def _import_identity(self):
+        if not self.identity_mgr:
+            return
         path, _ = QFileDialog.getOpenFileName(self, "Import Identity Key", "", "Key files (*.key);;All files (*)")
         if path:
             identity = self.identity_mgr.import_identity(path)
@@ -141,6 +145,8 @@ class IdentitiesWidget(QWidget):
                 QMessageBox.warning(self, "Error", "Failed to import identity key.")
 
     def _switch_identity(self):
+        if not self.identity_mgr:
+            return
         item = self.identity_list.currentItem()
         if not item:
             return
@@ -160,6 +166,8 @@ class IdentitiesWidget(QWidget):
             QMessageBox.warning(self, "Error", "Could not load identity.")
 
     def _delete_identity(self):
+        if not self.identity_mgr:
+            return
         item = self.identity_list.currentItem()
         if not item:
             return

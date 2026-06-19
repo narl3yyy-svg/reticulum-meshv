@@ -94,10 +94,11 @@ class ContactCard(QFrame):
         win = self.window()
         if hasattr(win, '_switch_to'):
             win._switch_to(0)
-        if hasattr(win, 'messages_widget'):
+        mw = getattr(win, 'messages_widget', None)
+        if mw is not None:
             h = self.contact_data.get('hash', '')
             n = self.contact_data.get('display_name', h[:8])
-            win.messages_widget.add_conversation(h, n)
+            mw.add_conversation(h, n)
 
     def _toggle_trust(self):
         h = self.contact_data.get('hash', '')

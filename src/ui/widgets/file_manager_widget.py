@@ -43,8 +43,8 @@ class FileManagerWidget(QWidget):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.file_transfer_manager = backend.file_transfer_manager
-        self.rns_node = backend.rns_node
+        self.file_transfer_manager = getattr(backend, 'file_transfer_manager', None)
+        self.rns_node = getattr(backend, 'rns_node', None)
         self.transfer_thread = None
         self.init_ui()
 
@@ -75,7 +75,7 @@ class FileManagerWidget(QWidget):
         identity_group.setStyleSheet(group_style())
         identity_layout = QHBoxLayout()
 
-        self.identity_label = QLabel(self.rns_node.get_short_identity_hash())
+        self.identity_label = QLabel(self.rns_node.get_short_identity_hash() if self.rns_node else "N/A")
         self.identity_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 12px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 6px; color: {MeshTheme.TEXT};")
         self.identity_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
@@ -191,6 +191,8 @@ class FileManagerWidget(QWidget):
         layout.addStretch()
 
     def _copy_identity(self):
+        if not self.rns_node:
+            return
         clipboard = QApplication.clipboard()
         hash_to_copy = self.rns_node.get_identity_hash()
         clipboard.setText(hash_to_copy)
@@ -198,6 +200,8 @@ class FileManagerWidget(QWidget):
         QMessageBox.information(self, "Copied", f"Identity hash copied ({expected} characters)")
 
     def _show_full_identity(self):
+        if not self.rns_node:
+            return
         full = self.rns_node.get_identity_hash()
         expected = self.rns_node.hash_length
         QMessageBox.information(self, f"Your Identity Hash ({expected} chars)", full)
@@ -226,7 +230,7 @@ class FileManagerWidget(QWidget):
             QMessageBox.warning(self, "Error", "Please enter the recipient's Destination Hash.")
             return
 
-        expected_len = self.rns_node.hash_length
+        expected_len = self.rns_node.hash_length if self.rns_node else 64
         if len(destination) != expected_len or not all(c in "0123456789abcdef" for c in destination):
             QMessageBox.warning(self, "Invalid Hash", f"Must be exactly {expected_len} hex characters.")
             return
@@ -273,18 +277,24 @@ class FileManagerWidget(QWidget):
         self.transfer_thread.start()
 
     def _on_progress(self, current, total, percentage, row):
-        self.progress_bar.setValue(percentage)
-        mb_current = current / (1024 * 1024)
-        mb_total = total / (1024 * 1024)
-        self.status_label.setText(f"Transferring: {mb_current:.1f} MB / {mb_total:.1f} MB ({percentage}%)")
-        if row < self.transfers_table.rowCount():
-            self.transfers_table.setItem(row, 2, QTableWidgetItem(f"{percentage}%"))
+        try:
+            self.progress_bar.setValue(percentage)
+            mb_current = current / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.status_label.setText(f"Transferring: {mb_current:.1f} MB / {mb_total:.1f} MB ({percentage}%)")
+            if row < self.transfers_table.rowCount():
+                self.transfers_table.setItem(row, 2, QTableWidgetItem(f"{percentage}%"))
+        except RuntimeError:
+            pass
 
     def _on_complete(self, file_path, row, was_folder=False, original_name=""):
-        self.status_label.setText("Done!")
-        self.progress_bar.setValue(100)
-        if row < self.transfers_table.rowCount():
-            self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
+        try:
+            self.status_label.setText("Done!")
+            self.progress_bar.setValue(100)
+            if row < self.transfers_table.rowCount():
+                self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
+        except RuntimeError:
+            return
 
         if was_folder:
             msg = f"Folder '{original_name}' sent successfully"
@@ -293,7 +303,10 @@ class FileManagerWidget(QWidget):
         QMessageBox.information(self, "Success", msg)
 
     def _on_failed(self, error, file_path, row):
-        self.status_label.setText("Failed")
-        if row < self.transfers_table.rowCount():
-            self.transfers_table.setItem(row, 3, QTableWidgetItem("Failed"))
+        try:
+            self.status_label.setText("Failed")
+            if row < self.transfers_table.rowCount():
+                self.transfers_table.setItem(row, 3, QTableWidgetItem("Failed"))
+        except RuntimeError:
+            return
         QMessageBox.critical(self, "Error", str(error))

@@ -138,41 +138,47 @@ class TelephonyWidget(QWidget):
         self._refresh_history()
 
     def _on_state_change(self, state, call_info):
-        if state == "idle":
-            self.state_label.setText("Idle")
-            self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.TEXT_DIM}; background: transparent;")
-            self.peer_label.setText("")
-            self.call_btn.setVisible(True)
-            self.accept_btn.setVisible(False)
-            self.reject_btn.setVisible(False)
-            self.end_btn.setVisible(False)
-        elif state == "ringing":
-            self.state_label.setText("\U0001F4DE Incoming Call...")
-            self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.WARNING}; background: transparent;")
-            if call_info:
-                self.peer_label.setText(f"From: {call_info.get('peer_hash', '')[:16]}...")
-            self.call_btn.setVisible(False)
-            self.accept_btn.setVisible(True)
-            self.reject_btn.setVisible(True)
-            self.end_btn.setVisible(False)
-        elif state == "connecting":
-            self.state_label.setText("Connecting...")
-            self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.ACCENT}; background: transparent;")
-            self.call_btn.setVisible(False)
-            self.accept_btn.setVisible(False)
-            self.reject_btn.setVisible(False)
-            self.end_btn.setVisible(True)
-        elif state == "active":
-            self.state_label.setText("\U0001F534 Call Active")
-            self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.SUCCESS}; background: transparent;")
-            self.call_btn.setVisible(False)
-            self.accept_btn.setVisible(False)
-            self.reject_btn.setVisible(False)
-            self.end_btn.setVisible(True)
+        try:
+            if state == "idle":
+                self.state_label.setText("Idle")
+                self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.TEXT_DIM}; background: transparent;")
+                self.peer_label.setText("")
+                self.call_btn.setVisible(True)
+                self.accept_btn.setVisible(False)
+                self.reject_btn.setVisible(False)
+                self.end_btn.setVisible(False)
+            elif state == "ringing":
+                self.state_label.setText("\U0001F4DE Incoming Call...")
+                self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.WARNING}; background: transparent;")
+                if call_info:
+                    self.peer_label.setText(f"From: {call_info.get('peer_hash', '')[:16]}...")
+                self.call_btn.setVisible(False)
+                self.accept_btn.setVisible(True)
+                self.reject_btn.setVisible(True)
+                self.end_btn.setVisible(False)
+            elif state == "connecting":
+                self.state_label.setText("Connecting...")
+                self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.ACCENT}; background: transparent;")
+                self.call_btn.setVisible(False)
+                self.accept_btn.setVisible(False)
+                self.reject_btn.setVisible(False)
+                self.end_btn.setVisible(True)
+            elif state == "active":
+                self.state_label.setText("\U0001F534 Call Active")
+                self.state_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {MeshTheme.SUCCESS}; background: transparent;")
+                self.call_btn.setVisible(False)
+                self.accept_btn.setVisible(False)
+                self.reject_btn.setVisible(False)
+                self.end_btn.setVisible(True)
+        except RuntimeError:
+            pass
 
     def _on_ringtone(self, caller_hash):
-        self.state_label.setText("📞 Incoming Call!")
-        self.peer_label.setText(f"From: {caller_hash[:16]}...")
+        try:
+            self.state_label.setText("📞 Incoming Call!")
+            self.peer_label.setText(f"From: {caller_hash[:16]}...")
+        except RuntimeError:
+            pass
 
     def _call(self):
         dest = self.dest_input.text().strip().lower()
