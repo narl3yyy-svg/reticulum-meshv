@@ -137,10 +137,10 @@ class MainWindow(QMainWindow):
             ("Files", "F", 1),
             ("Contacts", "C", 2),
             ("Announces", "A", 3),
-            ("Network", "N", 5),
-            ("Telephony", "T", 6),
-            ("Interfaces", "I", 7),
-            ("Settings", "S", 8),
+            ("Network", "N", 4),
+            ("Telephony", "T", 5),
+            ("Interfaces", "I", 6),
+            ("Settings", "S", 7),
         ]
 
         for text, icon, idx in self.nav_items:
@@ -261,8 +261,7 @@ class MainWindow(QMainWindow):
     def _switch_to(self, index):
         for i, btn in enumerate(self.nav_buttons):
             btn.set_active(i == index)
-        actual_index = self.nav_items[index][2] if index < len(self.nav_items) else index
-        self.stack.setCurrentIndex(actual_index)
+        self.stack.setCurrentIndex(index)
 
     def _on_name_changed(self, text):
         self.backend.set_display_name(text)

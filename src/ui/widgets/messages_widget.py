@@ -253,7 +253,7 @@ class MessagesWidget(QWidget):
         search.textChanged.connect(self._filter_conversations)
         layout.addWidget(search)
 
-        self.conv_empty = EmptyState("\U0001F4AC", "No conversations", "Messages from contacts appear here")
+        self.conv_empty = EmptyState("M", "No conversations", "Messages from contacts appear here")
         layout.addWidget(self.conv_empty)
 
         scroll = QScrollArea()
@@ -293,7 +293,7 @@ class MessagesWidget(QWidget):
         self.chat_stack = QStackedWidget()
         self.chat_stack.setStyleSheet("background: transparent;")
 
-        self.chat_empty = EmptyState("\U0001F4AC", "No conversation selected", "Choose a conversation from the sidebar to start chatting")
+        self.chat_empty = EmptyState("M", "No conversation selected", "Choose a conversation from the sidebar to start chatting")
         self.chat_stack.addWidget(self.chat_empty)
 
         chat_content = QWidget()

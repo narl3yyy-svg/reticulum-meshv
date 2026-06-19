@@ -1,4 +1,4 @@
-"""RMESHV – Reticulum Mesh application entry point."""
+"""RMESHV — Reticulum Mesh application entry point."""
 
 import json
 import sys
@@ -8,13 +8,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.backend.rns_node import ReticulumNode
-from src.backend.file_transfer_manager import FileTransferManager
 from src.backend.lxmf_messenger import LXMFMessenger
-from src.backend.identity_manager import IdentityManager
 from src.backend.contact_manager import ContactManager
 from src.backend.network_monitor import NetworkMonitor
-from src.backend.telephony_manager import TelephonyManager
-from src.backend.tcp_bridge import TCPBridgeServer
 from src.ui.main_window import MainWindow
 
 
@@ -28,13 +24,9 @@ class Application:
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
         self.rns_node = None
-        self.file_transfer_manager = None
         self.lxmf_messenger = None
-        self.identity_manager = None
         self.contact_manager = None
         self.network_monitor = None
-        self.telephony_manager = None
-        self.tcp_bridge = None
         self.main_window = None
 
         self._config_path = self.app_config_dir / "config.json"
@@ -86,32 +78,27 @@ class Application:
             return False
         return True
 
-    def _ensure_rns_tcp_server(self):
-        """Ensure TCPServerInterface and AutoInterface are in RNS config for phone connections."""
+    def _ensure_rns_config(self):
         config_path = self.rns_config_dir / "config"
         if not config_path.exists():
             self._create_default_rns_config(config_path)
+            return
 
         try:
             text = config_path.read_text()
-
-            needs_write = False
             additions = []
 
             if "AutoInterface" not in text:
                 additions.append("\n[[AutoInterface]]\n  type = AutoInterface\n  interface_enabled = Yes\n")
-                needs_write = True
 
-            if "TCPServerInterface" not in text and "listen_port = 4242" not in text:
+            if "TCPServerInterface" not in text:
                 additions.append("\n[[TCP Server]]\n  type = TCPServerInterface\n  interface_enabled = Yes\n  listen_ip = 0.0.0.0\n  listen_port = 4242\n")
-                needs_write = True
 
-            if needs_write and additions:
+            if additions:
                 config_path.write_text(text.rstrip() + "\n" + "\n".join(additions))
-                print("[RMESHV] Added AutoInterface + TCPServerInterface on port 4242")
-
+                print("[RMESHV] Added AutoInterface + TCPServerInterface to config")
         except Exception as e:
-            print(f"[RMESHV] Config update note: {e}")
+            print(f"[RMESHV] Config note: {e}")
 
     def _create_default_rns_config(self, config_path):
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,7 +123,7 @@ class Application:
 
     def _init_backend(self):
         try:
-            self._ensure_rns_tcp_server()
+            self._ensure_rns_config()
             self.rns_node = ReticulumNode(
                 rns_config_dir=str(self.rns_config_dir),
                 app_config_dir=str(self.app_config_dir)
@@ -145,17 +132,10 @@ class Application:
                 print("Reticulum node failed to initialize")
                 return
 
-            self.identity_manager = IdentityManager(str(self.app_config_dir))
             self.contact_manager = ContactManager(str(self.app_config_dir))
 
             identity = self.rns_node.get_identity()
             if identity:
-                self.file_transfer_manager = FileTransferManager(
-                    identity,
-                    downloads_dir=self.downloads_dir,
-                    rns_node=self.rns_node
-                )
-
                 self.lxmf_messenger = LXMFMessenger(
                     identity,
                     storage_dir=str(self.app_config_dir / "lxmf"),
@@ -169,22 +149,7 @@ class Application:
                 )
                 self.network_monitor.start()
 
-                self.telephony_manager = TelephonyManager(identity)
-
                 self._start_auto_announce()
-
-            if self.rns_node:
-                self.rns_node.set_text_message_callback(self._on_text_message)
-
-            self.tcp_bridge = TCPBridgeServer(
-                lxmf_messenger=self.lxmf_messenger,
-                rns_node=self.rns_node,
-                network_monitor=self.network_monitor,
-                host="0.0.0.0",
-                port=4742
-            )
-            self.tcp_bridge.message_callback = self._on_bridge_message
-            self.tcp_bridge.start()
 
         except Exception as e:
             print(f"Backend initialization error: {e}")
@@ -193,62 +158,33 @@ class Application:
 
     def _start_auto_announce(self):
         def loop():
-            time.sleep(5)
+            time.sleep(3)
             while True:
                 display_name = self.get_display_name()
                 if self.lxmf_messenger:
                     self.lxmf_messenger.announce(display_name)
-                if self.rns_node:
-                    self.rns_node.announce_myself(display_name)
                 time.sleep(60)
         t = threading.Thread(target=loop, daemon=True)
         t.start()
 
     def announce_now(self):
         display_name = self.get_display_name()
-        announced = False
         if self.lxmf_messenger:
-            if self.lxmf_messenger.announce(display_name):
-                announced = True
-        if self.rns_node:
-            if self.rns_node.announce_myself(display_name):
-                announced = True
-        if announced:
-            print(f"[RMESHV] Announced as: {display_name}")
-        return announced
-
-    def _on_text_message(self, sender_hash: str, text: str):
-        if self.main_window and hasattr(self.main_window, "messages_widget"):
-            try:
-                self.main_window.messages_widget.receive_text_message(sender_hash, text)
-            except Exception as e:
-                print(f"Error delivering text message to UI: {e}")
+            return self.lxmf_messenger.announce(display_name)
+        return False
 
     def _on_lxmf_message(self, sender_hash: str, content: str, title: str, timestamp: float):
-        self.contact_manager.touch(sender_hash)
+        if self.contact_manager:
+            self.contact_manager.touch(sender_hash)
         if self.main_window and hasattr(self.main_window, "messages_widget"):
             try:
                 self.main_window.messages_widget.receive_lxmf_message(sender_hash, content, title, timestamp)
             except Exception as e:
-                print(f"Error delivering LXMF message to UI: {e}")
-
-    def _on_bridge_message(self, sender_hash: str, text: str, timestamp: float):
-        if not sender_hash:
-            return
-        if self.main_window and hasattr(self.main_window, "messages_widget"):
-            try:
-                self.main_window.messages_widget.receive_lxmf_message(sender_hash, text, "", timestamp)
-            except Exception as e:
-                print(f"Error delivering bridge message to UI: {e}")
+                print(f"[LXMF] UI delivery error: {e}")
 
     def send_message(self, dest_hash: str, text: str):
         if self.lxmf_messenger:
-            if self.lxmf_messenger.send_message(dest_hash, text):
-                return True
-        if self.tcp_bridge:
-            return self.tcp_bridge.send_to_client(dest_hash, "message",
-                from_hash=self.rns_node.get_identity_hash() if self.rns_node else "",
-                text=text, timestamp=time.time())
+            return self.lxmf_messenger.send_message(dest_hash, text)
         return False
 
     def run(self):
@@ -262,9 +198,6 @@ class Application:
             )
 
         self.main_window = MainWindow(self)
-
-        if self.rns_node:
-            self.rns_node.set_text_message_callback(self._on_text_message)
 
         if self.lxmf_messenger:
             self.lxmf_messenger.set_message_callback(self._on_lxmf_message)

@@ -36,7 +36,7 @@ class NetworkWidget(QWidget):
 
         layout.addLayout(header)
 
-        self.network_empty = EmptyState("\U0001F310", "No peers discovered", "Your mesh network will be visible here")
+        self.network_empty = EmptyState("N", "No peers discovered", "Your mesh network will be visible here")
         layout.addWidget(self.network_empty)
 
         peer_group = QGroupBox("Discovered Peers")

@@ -137,7 +137,7 @@ class AnnouncesWidget(QWidget):
 
         layout.addWidget(header)
 
-        self.announces_empty = EmptyState("\U0001F4E2", "No announces yet", "Network announces from other nodes appear here")
+        self.announces_empty = EmptyState("A", "No announces yet", "Network announces from other nodes appear here")
         layout.addWidget(self.announces_empty)
 
         scroll = QScrollArea()

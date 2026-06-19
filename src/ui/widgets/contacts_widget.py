@@ -216,7 +216,7 @@ class ContactsWidget(QWidget):
         hdr.addWidget(add_btn)
         layout.addWidget(header)
 
-        self.contacts_empty = EmptyState("\U0001F465", "No contacts yet", "Contacts appear here when discovered on the mesh or added manually")
+        self.contacts_empty = EmptyState("C", "No contacts yet", "Contacts appear here when discovered on the mesh or added manually")
         layout.addWidget(self.contacts_empty)
 
         scroll = QScrollArea()
