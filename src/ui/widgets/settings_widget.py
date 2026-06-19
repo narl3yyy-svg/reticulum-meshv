@@ -3,7 +3,8 @@
 import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication
+    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication,
+    QComboBox
 )
 from PyQt6.QtCore import Qt
 from pathlib import Path
@@ -120,6 +121,50 @@ class SettingsWidget(QWidget):
         iface_group.setLayout(iface_layout)
         layout.addWidget(iface_group)
 
+        # === Message Privacy ===
+        msg_group = QGroupBox("Message Privacy")
+        msg_group.setStyleSheet(group_style())
+        msg_layout = QVBoxLayout()
+
+        msg_label = QLabel("Who can send you messages:")
+        msg_label.setStyleSheet(f"color: {MeshTheme.TEXT}; background: transparent;")
+        msg_layout.addWidget(msg_label)
+
+        self.filter_combo = QComboBox()
+        self.filter_combo.addItem("Allow all", "all")
+        self.filter_combo.addItem("Trusted contacts only", "trusted")
+        self.filter_combo.addItem("Block all unknown", "blocked")
+        self.filter_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
+                border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px;
+                padding: 8px 12px; font-size: 13px;
+            }}
+            QComboBox::drop-down {{
+                border: none; padding-right: 8px;
+            }}
+            QComboBox::item:selected {{
+                background-color: {MeshTheme.ACCENT}; color: white;
+            }}
+        """)
+        current_filter = self.backend.get_message_filter() if hasattr(self.backend, 'get_message_filter') else "all"
+        idx = self.filter_combo.findData(current_filter)
+        if idx >= 0:
+            self.filter_combo.setCurrentIndex(idx)
+        self.filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        msg_layout.addWidget(self.filter_combo)
+
+        filter_note = QLabel(
+            "Trusted contacts can be managed from the Contacts tab.\n"
+            "Blocked senders are silently ignored."
+        )
+        filter_note.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 11px; background: transparent;")
+        filter_note.setWordWrap(True)
+        msg_layout.addWidget(filter_note)
+
+        msg_group.setLayout(msg_layout)
+        layout.addWidget(msg_group)
+
         layout.addStretch()
 
         self._load_current_interface_settings()
@@ -192,6 +237,22 @@ class SettingsWidget(QWidget):
             self.download_path.setText(folder)
             if hasattr(self.backend, 'downloads_dir'):
                 self.backend.downloads_dir = Path(folder)
+
+    def _on_filter_changed(self, idx):
+        mode = self.filter_combo.itemData(idx)
+        if hasattr(self.backend, 'set_message_filter'):
+            self.backend.set_message_filter(mode)
+        sb = self._find_status_bar()
+        if sb:
+            sb.showMessage(f"Message filter set to: {mode}", 3000)
+
+    def _find_status_bar(self):
+        p = self.parent()
+        while p:
+            if hasattr(p, 'statusBar'):
+                return p.statusBar()
+            p = p.parent()
+        return None
 
     def _restart_application(self):
         if QMessageBox.question(self, "Restart", "Restart application now?", 

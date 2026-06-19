@@ -48,7 +48,7 @@ class Application:
                 return json.loads(self._config_path.read_text())
             except:
                 pass
-        return {"display_name": ""}
+        return {"display_name": "", "message_filter": "all"}
 
     def _save_config(self):
         self._config_path.write_text(json.dumps(self._config, indent=2))
@@ -64,6 +64,25 @@ class Application:
     def set_display_name(self, name: str):
         self._config["display_name"] = name
         self._save_config()
+
+    def get_message_filter(self) -> str:
+        return self._config.get("message_filter", "all")
+
+    def set_message_filter(self, mode: str):
+        self._config["message_filter"] = mode
+        self._save_config()
+
+    def is_sender_allowed(self, sender_hash: str) -> bool:
+        mode = self.get_message_filter()
+        if mode == "all":
+            return True
+        if mode == "trusted":
+            if self.contact_manager:
+                return self.contact_manager.check_trusted(sender_hash)
+            return False
+        if mode == "blocked":
+            return False
+        return True
 
     def _ensure_rns_tcp_server(self):
         """Add TCPServerInterface to RNS config for phone TCP connections."""
@@ -136,6 +155,7 @@ class Application:
             self.tcp_bridge = TCPBridgeServer(
                 lxmf_messenger=self.lxmf_messenger,
                 rns_node=self.rns_node,
+                network_monitor=self.network_monitor,
                 host="0.0.0.0",
                 port=4742
             )

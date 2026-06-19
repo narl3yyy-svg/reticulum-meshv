@@ -23,6 +23,15 @@ class LXMFMessenger:
         )
         self.router.register_delivery_callback(self._on_message)
 
+        # Source destination for outgoing messages
+        self.source_dest = RNS.Destination(
+            identity,
+            RNS.Destination.OUT,
+            RNS.Destination.SINGLE,
+            "lxmf",
+            "delivery"
+        )
+
         self.message_callback: Optional[Callable] = None
         self.conversations: dict[str, list] = {}
 
@@ -69,7 +78,7 @@ class LXMFMessenger:
 
             message = LXMF.LXMessage(
                 dest,
-                self.identity,
+                self.source_dest,
                 content=text.encode("utf-8") if isinstance(text, str) else text,
                 title=title.encode("utf-8") if title else b"",
             )

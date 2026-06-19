@@ -76,11 +76,12 @@ class BridgeClientSession:
 
 
 class TCPBridgeServer:
-    def __init__(self, lxmf_messenger=None, rns_node=None, host="0.0.0.0", port=4742):
+    def __init__(self, lxmf_messenger=None, rns_node=None, network_monitor=None, host="0.0.0.0", port=4742):
         self.host = host
         self.port = port
         self.lxmf_messenger = lxmf_messenger
         self.rns_node = rns_node
+        self.network_monitor = network_monitor
         self.clients = {}
         self._lock = threading.Lock()
         self.server_identity = ""
@@ -144,6 +145,11 @@ class TCPBridgeServer:
                 if old_key in self.clients and self.clients[old_key] is session:
                     del self.clients[old_key]
                 self.clients[session.identity] = session
+        if self.network_monitor and session.identity:
+            self.network_monitor.register_peer(
+                session.identity,
+                f"Mobile ({session.addr[0]})"
+            )
 
     def _on_disconnect(self, session):
         with self._lock:
@@ -169,7 +175,17 @@ class TCPBridgeServer:
                 self.message_callback(session.identity, f"{text}", timestamp)
 
     def _on_announce(self, session):
-        pass
+        if self.network_monitor and session.identity:
+            self.network_monitor.register_peer(
+                session.identity,
+                f"Mobile ({session.addr[0]})"
+            )
+        if self.message_callback:
+            self.message_callback(
+                session.identity,
+                f"📡 Announced on mesh from mobile",
+                time.time()
+            )
 
     def _on_get_peers(self, session):
         with self._lock:

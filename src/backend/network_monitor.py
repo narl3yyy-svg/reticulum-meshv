@@ -95,6 +95,18 @@ class NetworkMonitor:
         with self._lock:
             return {k: v for k, v in self.paths.items()}
 
+    def register_peer(self, hash_hex: str, name: str = ""):
+        with self._lock:
+            existing = self.peers.get(hash_hex, {})
+            self.peers[hash_hex] = {
+                "hash": hash_hex,
+                "hash_short": hash_hex[:12],
+                "first_seen": existing.get("first_seen", time.time()),
+                "last_seen": time.time(),
+                "app_data": name or hash_hex[:12],
+                "source": "bridge",
+            }
+
     def get_network_graph(self) -> dict:
         nodes = []
         edges = []

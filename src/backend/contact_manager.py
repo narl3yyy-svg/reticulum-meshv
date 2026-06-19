@@ -14,6 +14,7 @@ class Contact:
         self.first_seen = time.time()
         self.last_seen = time.time()
         self.is_favourite = False
+        self.is_trusted = False
 
     def to_dict(self) -> dict:
         return {
@@ -23,6 +24,7 @@ class Contact:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
             "is_favourite": self.is_favourite,
+            "is_trusted": self.is_trusted,
         }
 
     @classmethod
@@ -31,6 +33,7 @@ class Contact:
         c.first_seen = d.get("first_seen", time.time())
         c.last_seen = d.get("last_seen", time.time())
         c.is_favourite = d.get("is_favourite", False)
+        c.is_trusted = d.get("is_trusted", False)
         return c
 
 
@@ -94,3 +97,18 @@ class ContactManager:
             self._save()
         else:
             self.add_or_update(hash_hex)
+
+    def set_trusted(self, hash_hex: str, trusted: bool) -> bool:
+        c = self.get(hash_hex)
+        if c:
+            c.is_trusted = trusted
+            self._save()
+            return True
+        return False
+
+    def check_trusted(self, hash_hex: str) -> bool:
+        c = self.get(hash_hex)
+        return c.is_trusted if c else False
+
+    def get_trusted(self) -> list:
+        return [c for c in self.contacts.values() if c.is_trusted]

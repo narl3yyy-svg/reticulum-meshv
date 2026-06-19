@@ -34,20 +34,34 @@ class ContactCard(QFrame):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         name = contact_data.get('display_name', contact_data.get('hash', '')[:8])
-        label = QLabel(name[0].upper() if name else '?')
-        label.setFixedSize(64, 64)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet(f"""
+        is_trusted = contact_data.get('is_trusted', False)
+
+        avatar_frame = QFrame()
+        avatar_frame.setFixedSize(64, 64)
+        avatar_layout = QVBoxLayout(avatar_frame)
+        avatar_layout.setContentsMargins(0, 0, 0, 0)
+        avatar_label = QLabel(name[0].upper() if name else '?')
+        avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar_label.setStyleSheet(f"""
             background-color: {MeshTheme.ACCENT}30;
             color: {MeshTheme.ACCENT};
             font-size: 28px; font-weight: 700; border-radius: 32px;
         """)
-        layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
+        avatar_layout.addWidget(avatar_label)
+        layout.addWidget(avatar_frame, 0, Qt.AlignmentFlag.AlignCenter)
 
+        name_row = QHBoxLayout()
+        name_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_row.setSpacing(4)
         name_label = QLabel(name)
         name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name_label.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MeshTheme.TEXT}; background: transparent;")
-        layout.addWidget(name_label)
+        name_row.addWidget(name_label)
+        if is_trusted:
+            badge = QLabel("\u2713")
+            badge.setStyleSheet(f"font-size: 14px; color: {MeshTheme.SUCCESS}; background: transparent; font-weight: 700;")
+            name_row.addWidget(badge)
+        layout.addLayout(name_row)
 
         hash_str = contact_data.get('hash', '')[:12]
         hash_label = QLabel(hash_str)
@@ -85,6 +99,28 @@ class ContactCard(QFrame):
             n = self.contact_data.get('display_name', h[:8])
             win.messages_widget.add_conversation(h, n)
 
+    def _toggle_trust(self):
+        h = self.contact_data.get('hash', '')
+        win = self.window()
+        if win and hasattr(win, 'backend') and win.backend and win.backend.contact_manager:
+            mgr = win.backend.contact_manager
+            c = mgr.get(h)
+            if c:
+                new_val = not c.is_trusted
+                mgr.set_trusted(h, new_val)
+                self.contact_data['is_trusted'] = new_val
+                sb = self._sb()
+                if sb:
+                    sb.showMessage(f"{'Trusted' if new_val else 'Untrusted'} {self.contact_data.get('display_name', h[:8])}", 3000)
+
+    def _sb(self):
+        p = self.parent()
+        while p:
+            if hasattr(p, 'statusBar'):
+                return p.statusBar()
+            p = p.parent()
+        return None
+
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         menu.setStyleSheet(f"""
@@ -93,11 +129,17 @@ class ContactCard(QFrame):
             QMenu::item {{ padding: 6px 20px; border-radius: 4px; color: {MeshTheme.TEXT}; }}
             QMenu::item:selected {{ background-color: {MeshTheme.ACCENT}; color: white; }}
         """)
+        h = self.contact_data.get('hash', '')
+        is_trusted = self.contact_data.get('is_trusted', False)
+        trust_label = "✓ Trusted" if is_trusted else "Trust"
+        trust_a = menu.addAction(trust_label)
         copy_a = menu.addAction("Copy Identity Hash")
         delete_a = menu.addAction("Delete Contact")
         action = menu.exec(event.globalPos())
-        if action == copy_a:
-            QApplication.clipboard().setText(self.contact_data.get('hash', ''))
+        if action == trust_a:
+            self._toggle_trust()
+        elif action == copy_a:
+            QApplication.clipboard().setText(h)
         elif action == delete_a:
             parent_widget = self.parentWidget()
             while parent_widget and not hasattr(parent_widget, 'cards'):
@@ -203,10 +245,14 @@ class ContactsWidget(QWidget):
                 seen.add(h)
                 age = time.time() - p.get("last_seen", 0)
                 status = "online" if age < 300 else "away" if age < 3600 else "offline"
+                is_trusted = False
+                if self.backend.contact_manager:
+                    is_trusted = self.backend.contact_manager.check_trusted(h)
                 self.add_contact({
                     "hash": h,
                     "display_name": p.get("app_data", h[:8]),
                     "status": status,
+                    "is_trusted": is_trusted,
                 })
         if self.backend.contact_manager:
             for c in self.backend.contact_manager.get_all():
@@ -218,6 +264,7 @@ class ContactsWidget(QWidget):
                         "hash": c.hash_hex,
                         "display_name": c.name,
                         "status": status,
+                        "is_trusted": c.is_trusted,
                     })
         if not self.cards and self.backend.rns_node:
             self.add_contact({

@@ -440,6 +440,9 @@ class MessagesWidget(QWidget):
         self.messages_layout.insertWidget(self.messages_layout.count() - 1, label)
 
     def receive_text_message(self, sender_hash: str, text: str):
+        if self.backend and hasattr(self.backend, 'is_sender_allowed'):
+            if not self.backend.is_sender_allowed(sender_hash):
+                return
         if sender_hash not in self.conversations:
             self.add_conversation(sender_hash, sender_hash[:16])
         ts = QDateTime.currentDateTime()
@@ -451,6 +454,9 @@ class MessagesWidget(QWidget):
             conv.update_message(text, ts)
 
     def receive_lxmf_message(self, sender_hash: str, content: str, title: str, timestamp: float):
+        if self.backend and hasattr(self.backend, 'is_sender_allowed'):
+            if not self.backend.is_sender_allowed(sender_hash):
+                return
         if sender_hash not in self.conversations:
             name = sender_hash[:16]
             if self.backend.contact_manager:
