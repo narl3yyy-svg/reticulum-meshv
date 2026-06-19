@@ -1,8 +1,10 @@
 """Reticulum Mesh Mobile App - Self-contained."""
 
+import os
 import sys
 import time
 import threading
+import hashlib
 from pathlib import Path
 
 BACKEND_AVAILABLE = False
@@ -38,25 +40,49 @@ class MobileReticulumNode:
         self.identity_hash = ""
         self.discovered_peers = {}
 
-        if not BACKEND_AVAILABLE:
-            return
+        if BACKEND_AVAILABLE:
+            self._init_rns()
+        else:
+            self._init_local()
 
+    def _init_local(self):
+        print("[Mobile] Using local-only mode (RNS not available)")
+        path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity_local.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            try:
+                self.identity_hash = path.read_text().strip()
+                if len(self.identity_hash) == 64:
+                    print(f"[Mobile] Loaded local identity: {self.identity_hash[:12]}...")
+                    return
+            except:
+                pass
+        self.identity_hash = os.urandom(32).hex()
+        try:
+            path.write_text(self.identity_hash)
+            print(f"[Mobile] Generated local identity: {self.identity_hash[:12]}...")
+        except:
+            pass
+
+    def _init_rns(self):
         try:
             config_dir = str(Path.home() / ".reticulum")
             self.reticulum = RNS.Reticulum(configdir=config_dir)
-            self.identity = self._load_identity()
+            self.identity = self._load_rns_identity()
             self.identity_hash = self.identity.hash.hex() if self.identity else ""
 
             try:
-                RNS.Transport.register_announce_handler(self._on_announce)
+                RNS.Transport.register_announce_handler(self._on_announce_rns)
             except:
                 pass
         except Exception as e:
             import traceback
             print(f"[Mobile] RNS init error: {e}")
             traceback.print_exc()
+            print("[Mobile] Falling back to local-only mode")
+            self._init_local()
 
-    def _load_identity(self):
+    def _load_rns_identity(self):
         path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity.key"
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
@@ -74,7 +100,7 @@ class MobileReticulumNode:
         identity.to_file(str(path))
         return identity
 
-    def _on_announce(self, destination_hash, announced_identity, app_data):
+    def _on_announce_rns(self, destination_hash, announced_identity, app_data):
         if not announced_identity:
             return
         hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else destination_hash
@@ -90,28 +116,29 @@ class MobileReticulumNode:
         return list(self.discovered_peers.items())
 
     def announce_myself(self):
-        if not self.identity:
-            print("[Mobile] announce: no identity loaded")
-            return False
-        try:
-            dest = RNS.Destination(
-                self.identity,
-                RNS.Destination.IN,
-                RNS.Destination.SINGLE,
-                "reticulum-meshv",
-                "announce"
-            )
-            dest.announce()
-            print("[Mobile] announce: OK")
-            return True
-        except Exception as e:
-            print(f"[Mobile] announce failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+        if BACKEND_AVAILABLE and self.identity:
+            try:
+                dest = RNS.Destination(
+                    self.identity,
+                    RNS.Destination.IN,
+                    RNS.Destination.SINGLE,
+                    "reticulum-meshv",
+                    "announce"
+                )
+                dest.announce()
+                print("[Mobile] announce: OK")
+                return True
+            except Exception as e:
+                print(f"[Mobile] announce failed: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
+        print("[Mobile] announce: local-only (no-op)")
+        return True
 
     def send_text(self, destination_hash, text):
-        if not BACKEND_AVAILABLE:
+        if not BACKEND_AVAILABLE or not self.identity:
+            print("[Mobile] send_text: RNS unavailable")
             return False
         try:
             dest_bytes = bytes.fromhex(destination_hash)
@@ -287,7 +314,7 @@ class NetworkScreen(Box):
 
         self.add(make_label("Network", size=20, margin_b=8))
 
-        h = self.node.get_identity_hash() if self.node and self.node.identity else ""
+        h = self.node.get_identity_hash() if self.node else ""
         label = f"Identity:\n{h[:32]}..." if h else "Identity:\nRNS not available"
         self.add(make_label(label, size=11, margin_b=12))
 
@@ -313,7 +340,7 @@ class SettingsScreen(Box):
         self.node = node
         self.add(make_label("Settings", size=20, margin_b=10))
 
-        h = self.node.get_identity_hash() if self.node and self.node.identity else ""
+        h = self.node.get_identity_hash() if self.node else ""
         self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nRNS not available", size=11, margin_b=12))
 
         announce_btn = Button("Announce Myself", on_press=self.announce)
