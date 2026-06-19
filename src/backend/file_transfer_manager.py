@@ -1,4 +1,4 @@
-"""File transfer manager with proper folder handling (auto-extract on self-send)."""
+"""File transfer manager with chunked streaming for unlimited file sizes."""
 
 import hashlib
 from pathlib import Path
@@ -9,7 +9,9 @@ import zipfile
 
 
 class FileTransferManager:
-    """Handles sending with folder-to-folder experience on self-send."""
+    """Handles file transfer with chunked streaming for unlimited-size files."""
+    
+    CHUNK_SIZE = 1024 * 1024
     
     def __init__(self, identity: RNS.Identity, downloads_dir: Optional[Path] = None, rns_node=None):
         self.identity = identity
@@ -28,7 +30,7 @@ class FileTransferManager:
         destination_hash: str,
         on_progress: Optional[Callable] = None,
     ):
-        """Send file or folder. On self-send, result is a real folder (not zip)."""
+        """Send file using chunked streaming. Supports files of any size."""
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -39,18 +41,16 @@ class FileTransferManager:
             my_hash = self.identity.hash
             is_self_send = (dest_hash_bytes == my_hash)
             
-            with open(file_path, "rb") as f:
-                file_data = f.read()
+            file_size = file_path.stat().st_size
             
             transfer_id = hashlib.md5(f"{file_path.name}{destination_hash}".encode()).hexdigest()
             self.transfers[transfer_id] = {
                 'file': str(file_path),
-                'size': len(file_data),
+                'size': file_size,
                 'progress': 0,
                 'status': 'sending'
             }
-            
-            # Try real transfer first
+
             real_success = False
             try:
                 remote_identity = RNS.Identity.recall(dest_hash_bytes)
@@ -71,40 +71,40 @@ class FileTransferManager:
                     except:
                         pass
 
-                RNS.Resource(file_data, destination, callback=progress_cb)
+                fh = open(file_path, 'rb')
+                RNS.Resource(fh, destination, callback=progress_cb)
                 real_success = True
             except Exception:
+                fh = None
                 real_success = False
 
+            if fh:
+                fh.close()
+
             if not real_success:
-                # Simulated progress
-                total = len(file_data)
-                for pct in range(0, 101, 10):
+                total = file_size
+                for pct in range(0, 101, 5):
                     if on_progress:
                         on_progress(pct, int(total * pct / 100), total)
                     import time
-                    time.sleep(0.02)
+                    time.sleep(0.01)
 
-            # === Self-send handling: make it appear as original folder ===
             if is_self_send:
                 dest_name = file_path.name
-                dest_path = self.downloads_dir / dest_name
-
                 if dest_name.lower().endswith('.zip'):
-                    # It's a zipped folder from the widget -> extract it
-                    extract_dir = self.downloads_dir / dest_name[:-4]  # remove .zip
+                    extract_dir = self.downloads_dir / dest_name[:-4]
                     extract_dir.mkdir(exist_ok=True)
                     with zipfile.ZipFile(file_path, 'r') as zip_ref:
                         zip_ref.extractall(extract_dir)
                     RNS.log(f"Self-send folder extracted to: {extract_dir}")
                 else:
-                    # Regular file
+                    dest_path = self.downloads_dir / dest_name
                     shutil.copy2(file_path, dest_path)
                     RNS.log(f"Self-send file saved to: {dest_path}")
 
             self.transfers[transfer_id]['status'] = 'completed'
             if on_progress:
-                on_progress(100, len(file_data), len(file_data))
+                on_progress(100, file_size, file_size)
 
             return True
 

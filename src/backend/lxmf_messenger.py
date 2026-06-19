@@ -101,10 +101,10 @@ class LXMFMessenger:
     def set_message_callback(self, callback: Callable):
         self.message_callback = callback
 
-    def announce(self) -> bool:
+    def announce(self, app_data: str = "") -> bool:
         try:
             if self.delivery_dest:
-                self.delivery_dest.announce()
+                self.delivery_dest.announce(app_data.encode("utf-8") if app_data else None)
                 return True
         except:
             pass

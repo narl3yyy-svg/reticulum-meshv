@@ -71,13 +71,16 @@ class NetworkMonitor:
             return
         hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else destination_hash.hex()
         hash_hex_str = hash_hex
+        app_data_str = app_data.decode("utf-8", errors="replace") if isinstance(app_data, bytes) else (
+            str(app_data) if app_data else ""
+        )
         with self._lock:
             self.peers[hash_hex_str] = {
                 "hash": hash_hex_str,
                 "hash_short": hash_hex_str[:12],
                 "first_seen": self.peers.get(hash_hex_str, {}).get("first_seen", time.time()),
                 "last_seen": time.time(),
-                "app_data": str(app_data) if app_data else "",
+                "app_data": app_data_str,
             }
 
     def get_peers(self) -> list:

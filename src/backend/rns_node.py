@@ -53,10 +53,10 @@ class ReticulumNode:
         """Set a callback function(sender_hash, text) for incoming text messages."""
         self.text_message_callback = callback
 
-    def announce_myself(self):
+    def announce_myself(self, app_data: str = ""):
         if self.file_destination:
             try:
-                self.file_destination.announce()
+                self.file_destination.announce(app_data.encode("utf-8") if app_data else None)
                 return True
             except:
                 return False
@@ -65,9 +65,14 @@ class ReticulumNode:
     def _announce_received(self, destination_hash, announced_identity, app_data):
         try:
             hash_hex = destination_hash.hex()
-            name = announced_identity.hash.hex()[:12] if announced_identity else hash_hex[:12]
+            raw = announced_identity.hash.hex() if announced_identity else hash_hex[:12]
+            name = app_data.decode("utf-8", errors="replace") if isinstance(app_data, bytes) else (
+                str(app_data) if app_data else raw
+            )
             self.discovered_peers[hash_hex] = {
                 'name': name,
+                'hash_short': hash_hex[:12],
+                'app_data': name,
                 'last_seen': time.time()
             }
         except:

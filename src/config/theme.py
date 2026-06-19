@@ -1,67 +1,241 @@
-"""Arch Linux-inspired dark theme for PyQt6."""
+"""MeshChatX-inspired dark theme for PyQt6."""
 
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtCore import Qt
 
-class ArchTheme:
-    """Dark theme inspired by Arch Linux and Material Design."""
-    
-    COLORS = {
-        'background': '#1E1E1E',
-        'surface': '#2A2A2A',
-        'surface_variant': '#383838',
-        'primary': '#1F88E5',
-        'primary_container': '#0D47A1',
-        'secondary': '#4CAF50',
-        'tertiary': '#FF9800',
-        'error': '#F44336',
-        'on_background': '#E1E1E1',
-        'on_surface': '#E1E1E1',
-        'on_primary': '#FFFFFF',
-        'outline': '#626262',
-    }
-    
-    COMPONENT_COLORS = {
-        'sidebar_bg': '#1A1A1A',
-        'sidebar_hover': '#2A2A2A',
-        'sidebar_selected': '#1F88E5',
-        'chat_bubble_sent': '#1F88E5',
-        'chat_bubble_received': '#383838',
-        'input_field_bg': '#2A2A2A',
-        'input_field_border': '#383838',
-        'input_field_focus': '#1F88E5',
-        'status_online': '#4CAF50',
-        'status_offline': '#757575',
-        'file_progress': '#4CAF50',
-    }
-    
-    FONTS = {
-        'title': {'size': 24, 'weight': QFont.Weight.Bold},
-        'headline': {'size': 20, 'weight': QFont.Weight.Bold},
-        'body': {'size': 14, 'weight': QFont.Weight.Normal},
-        'small': {'size': 11, 'weight': QFont.Weight.Normal},
-    }
+
+class MeshTheme:
+    CANVAS = '#09090b'
+    SURFACE = '#18181b'
+    SURFACE_VARIANT = '#27272a'
+    SURFACE_LIGHT = '#3f3f46'
+    TEXT = '#f3f4f6'
+    TEXT_MUTED = '#a1a1aa'
+    TEXT_DIM = '#71717a'
+    ACCENT = '#60a5fa'
+    ACCENT_DARK = '#3b82f6'
+    ERROR = '#f87171'
+    SUCCESS = '#4ade80'
+    WARNING = '#fb923c'
+    BORDER = '#27272a'
+    CHAT_SENT_GRADIENT_1 = '#3b82f6'
+    CHAT_SENT_GRADIENT_2 = '#2563eb'
+    CHAT_RECEIVED_BG = '#27272a'
+    CHAT_RECEIVED_BORDER = '#3f3f46'
+    SIDEBAR_BG = '#111113'
+    SIDEBAR_HOVER = '#1f1f23'
+    SIDEBAR_SELECTED = '#60a5fa'
+    INPUT_BG = '#1a1a1e'
+    INPUT_BORDER = '#3f3f46'
+
 
 def get_stylesheet() -> str:
-    """Generate QSS stylesheet."""
-    c = {**ArchTheme.COLORS, **ArchTheme.COMPONENT_COLORS}
+    t = MeshTheme
     return f"""
-    QMainWindow {{ background-color: {c['background']}; color: {c['on_background']}; }}
-    QWidget {{ background-color: {c['background']}; color: {c['on_background']}; }}
-    QPushButton {{ background-color: {c['primary']}; color: {c['on_primary']}; border: none; padding: 8px 16px; border-radius: 6px; }}
-    QPushButton:hover {{ background-color: {c['primary_container']}; }}
-    QLineEdit {{ background-color: {c['input_field_bg']}; color: {c['on_surface']}; border: 1px solid {c['input_field_border']}; padding: 8px; border-radius: 6px; }}
-    QLineEdit:focus {{ border: 2px solid {c['input_field_focus']}; }}
-    QListWidget {{ background-color: {c['sidebar_bg']}; border: none; }}
-    QListWidget::item:selected {{ background-color: {c['sidebar_selected']}; color: {c['on_primary']}; }}
-    QProgressBar {{ background-color: {c['surface']}; border: none; border-radius: 6px; height: 6px; }}
-    QProgressBar::chunk {{ background-color: {c['file_progress']}; border-radius: 6px; }}
+    QMainWindow, QWidget {{
+        background-color: {t.CANVAS};
+        color: {t.TEXT};
+        font-family: 'Segoe UI', 'Noto Sans', sans-serif;
+    }}
+    QLabel {{
+        color: {t.TEXT};
+        background: transparent;
+    }}
+    QLineEdit {{
+        background-color: {t.INPUT_BG};
+        color: {t.TEXT};
+        border: 1px solid {t.INPUT_BORDER};
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+    }}
+    QLineEdit:focus {{
+        border: 2px solid {t.ACCENT};
+        padding: 7px 11px;
+    }}
+    QLineEdit::placeholder {{
+        color: {t.TEXT_DIM};
+    }}
+    QPushButton {{
+        background-color: {t.ACCENT};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 18px;
+        font-size: 13px;
+        font-weight: 600;
+    }}
+    QPushButton:hover {{
+        background-color: {t.ACCENT_DARK};
+    }}
+    QPushButton:pressed {{
+        background-color: {t.ACCENT_DARK};
+    }}
+    QPushButton:disabled {{
+        background-color: {t.SURFACE_LIGHT};
+        color: {t.TEXT_DIM};
+    }}
+    QScrollArea {{
+        border: none;
+        background: transparent;
+    }}
+    QScrollBar:vertical {{
+        background: transparent;
+        width: 8px;
+        margin: 0;
+    }}
+    QScrollBar::handle:vertical {{
+        background: {t.SURFACE_LIGHT};
+        border-radius: 4px;
+        min-height: 30px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: {t.TEXT_DIM};
+    }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0;
+    }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
+    QListWidget {{
+        background-color: transparent;
+        border: none;
+        outline: none;
+    }}
+    QListWidget::item {{
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin: 1px 4px;
+        color: {t.TEXT_MUTED};
+    }}
+    QListWidget::item:hover {{
+        background-color: {t.SIDEBAR_HOVER};
+        color: {t.TEXT};
+    }}
+    QListWidget::item:selected {{
+        background-color: {t.SIDEBAR_SELECTED};
+        color: white;
+    }}
+    QTreeWidget {{
+        background-color: transparent;
+        border: 1px solid {t.BORDER};
+        border-radius: 8px;
+        outline: none;
+    }}
+    QTreeWidget::item {{
+        padding: 4px 8px;
+        border-radius: 4px;
+    }}
+    QTreeWidget::item:hover {{
+        background-color: {t.SURFACE_VARIANT};
+    }}
+    QHeaderView::section {{
+        background-color: {t.SURFACE};
+        color: {t.TEXT_MUTED};
+        border: none;
+        border-bottom: 1px solid {t.BORDER};
+        padding: 6px 8px;
+        font-weight: 600;
+    }}
+    QGroupBox {{
+        border: 1px solid {t.BORDER};
+        border-radius: 10px;
+        margin-top: 20px;
+        padding: 16px 16px 16px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        color: {t.TEXT};
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        padding: 4px 12px;
+        color: {t.TEXT_MUTED};
+        font-size: 12px;
+        font-weight: 400;
+    }}
+    QTextEdit {{
+        background-color: {t.INPUT_BG};
+        color: {t.TEXT};
+        border: 1px solid {t.INPUT_BORDER};
+        border-radius: 8px;
+        padding: 8px;
+        font-size: 13px;
+    }}
+    QTextEdit:focus {{
+        border: 2px solid {t.ACCENT};
+    }}
+    QProgressBar {{
+        background-color: {t.SURFACE_VARIANT};
+        border: none;
+        border-radius: 6px;
+        height: 6px;
+        text-align: center;
+        font-size: 10px;
+    }}
+    QProgressBar::chunk {{
+        background-color: {t.SUCCESS};
+        border-radius: 6px;
+    }}
+    QTableWidget {{
+        background-color: transparent;
+        border: 1px solid {t.BORDER};
+        border-radius: 8px;
+        gridline-color: {t.BORDER};
+    }}
+    QTableWidget::item {{
+        padding: 6px 8px;
+        color: {t.TEXT};
+    }}
+    QTableWidget::item:selected {{
+        background-color: {t.ACCENT};
+        color: white;
+    }}
+    QSplitter::handle {{
+        background-color: {t.BORDER};
+        width: 1px;
+    }}
+    QStatusBar {{
+        background-color: {t.SURFACE};
+        border-top: 1px solid {t.BORDER};
+        color: {t.TEXT_MUTED};
+        font-size: 12px;
+    }}
+    QMenu {{
+        background-color: {t.SURFACE};
+        border: 1px solid {t.BORDER};
+        border-radius: 8px;
+        padding: 4px;
+    }}
+    QMenu::item {{
+        padding: 6px 24px;
+        border-radius: 4px;
+    }}
+    QMenu::item:selected {{
+        background-color: {t.ACCENT};
+        color: white;
+    }}
+    QMenu::separator {{
+        height: 1px;
+        background: {t.BORDER};
+        margin: 4px 8px;
+    }}
     """
 
+
 def get_font(style: str) -> QFont:
-    """Get themed font."""
-    config = ArchTheme.FONTS.get(style, ArchTheme.FONTS['body'])
+    configs = {
+        'title': (24, QFont.Weight.Bold),
+        'headline': (20, QFont.Weight.Bold),
+        'body': (14, QFont.Weight.Normal),
+        'small': (11, QFont.Weight.Normal),
+        'mono': (13, QFont.Weight.Normal),
+    }
+    size, weight = configs.get(style, configs['body'])
     font = QFont()
-    font.setPointSize(config['size'])
-    font.setWeight(config['weight'])
+    font.setPointSize(size)
+    font.setWeight(weight)
+    if style == 'mono':
+        font.setFamily('JetBrains Mono, Fira Code, Consolas, monospace')
     return font

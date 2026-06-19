@@ -1,203 +1,234 @@
-"""Enhanced Contacts widget with persistent storage and discovery."""
+"""MeshChatX-inspired contacts widget with card layout."""
 
-import time
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QInputDialog,
-    QMessageBox, QGroupBox, QMenu, QApplication
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QLineEdit, QScrollArea, QFrame, QGridLayout, QSizePolicy,
+    QMenu, QApplication
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QSize, QDateTime
+from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
+import time
+from src.config.theme import MeshTheme
+
+
+class ContactCard(QFrame):
+    def __init__(self, contact_data, parent=None):
+        super().__init__(parent)
+        self.contact_data = contact_data
+        self.setFixedSize(220, 240)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {MeshTheme.SURFACE};
+                border: 1px solid {MeshTheme.BORDER};
+                border-radius: 12px;
+            }}
+            QFrame:hover {{
+                border: 1px solid {MeshTheme.ACCENT}60;
+                background-color: {MeshTheme.SURFACE_VARIANT};
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 20, 16, 16)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        name = contact_data.get('display_name', contact_data.get('hash', '')[:8])
+        label = QLabel(name[0].upper() if name else '?')
+        label.setFixedSize(64, 64)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"""
+            background-color: {MeshTheme.ACCENT}30;
+            color: {MeshTheme.ACCENT};
+            font-size: 28px;
+            font-weight: 700;
+            border-radius: 32px;
+        """)
+        layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        name_label = QLabel(name)
+        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_label.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MeshTheme.TEXT}; background: transparent;")
+        font = name_label.font()
+        metrics = name_label.fontMetrics()
+        elided = metrics.elidedText(name, Qt.TextElideMode.ElideRight, 180)
+        name_label.setText(elided)
+        layout.addWidget(name_label)
+
+        hash_str = contact_data.get('hash', '')[:12]
+        hash_label = QLabel(hash_str)
+        hash_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hash_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {MeshTheme.TEXT_DIM}; background: transparent;")
+        layout.addWidget(hash_label)
+
+        status = contact_data.get('status', 'offline')
+        status_colors = {'online': MeshTheme.SUCCESS, 'away': MeshTheme.WARNING, 'offline': MeshTheme.TEXT_DIM}
+        color = status_colors.get(status, MeshTheme.TEXT_DIM)
+        status_label = QLabel(f"\u25CF {status.capitalize()}")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_label.setStyleSheet(f"font-size: 11px; color: {color}; background: transparent;")
+        layout.addWidget(status_label)
+
+        btn = QPushButton("Message")
+        btn.setFixedHeight(32)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {MeshTheme.ACCENT};
+                color: white; border: none; border-radius: 8px;
+                font-size: 12px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
+        btn.clicked.connect(self._message)
+        layout.addWidget(btn)
+
+    def _message(self):
+        from PyQt6.QtWidgets import QApplication
+        win = self.window()
+        if hasattr(win, '_switch_to'):
+            win._switch_to(0)
+        if hasattr(win, 'messages_widget'):
+            hash_val = self.contact_data.get('hash', '')
+            if isinstance(win.messages_widget, QWidget):
+                from PyQt6.QtCore import QDateTime
+                win.messages_widget.add_conversation(
+                    hash_val,
+                    self.contact_data.get('display_name', hash_val[:8])
+                )
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {MeshTheme.SURFACE};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px; border-radius: 4px;
+                color: {MeshTheme.TEXT};
+            }}
+            QMenu::item:selected {{
+                background-color: {MeshTheme.ACCENT}; color: white;
+            }}
+        """)
+        copy_action = menu.addAction("Copy Identity Hash")
+        delete_action = menu.addAction("Delete Contact")
+        action = menu.exec(event.globalPos())
+        if action == copy_action:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.contact_data.get('hash', ''))
+        elif action == delete_action:
+            self.setParent(None)
+            self.deleteLater()
 
 
 class ContactsWidget(QWidget):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.rns_node = backend.rns_node
-        self.contact_mgr = backend.contact_manager
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout.setSpacing(16)
 
+        header = QWidget()
+        hdr_layout = QHBoxLayout(header)
+        hdr_layout.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Contacts")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
-        layout.addWidget(title)
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
+        hdr_layout.addWidget(title)
 
-        announce_group = QGroupBox("Network Presence")
-        announce_layout = QVBoxLayout()
+        search = QLineEdit()
+        search.setPlaceholderText("\U0001F50D Search contacts...")
+        search.setFixedWidth(240)
+        search.setFixedHeight(36)
+        search.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {MeshTheme.INPUT_BG};
+                color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER};
+                border-radius: 8px; padding: 6px 12px; font-size: 13px;
+            }}
+            QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
+            QLineEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
+        """)
+        search.textChanged.connect(self._filter_cards)
+        hdr_layout.addStretch()
+        hdr_layout.addWidget(search)
 
-        announce_btn = QPushButton("Announce Myself on Network")
-        announce_btn.setStyleSheet("font-weight: bold;")
-        announce_btn.clicked.connect(self._announce)
-        announce_layout.addWidget(announce_btn)
-
-        announce_info = QLabel("Makes you visible to other nodes via LXMF and Reticulum")
-        announce_info.setStyleSheet("color: #888; font-size: 11px;")
-        announce_layout.addWidget(announce_info)
-
-        announce_group.setLayout(announce_layout)
-        layout.addWidget(announce_group)
-
-        search_group = QGroupBox("Search Contacts")
-        search_layout = QVBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Type to search by name or hash...")
-        self.search_input.textChanged.connect(self._refresh_lists)
-        search_layout.addWidget(self.search_input)
-        search_group.setLayout(search_layout)
-        layout.addWidget(search_group)
-
-        disc_group = QGroupBox("Discovered Peers")
-        disc_layout = QVBoxLayout()
-
-        self.discovered_list = QListWidget()
-        self.discovered_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.discovered_list.customContextMenuRequested.connect(self._show_discovered_menu)
-        disc_layout.addWidget(self.discovered_list)
-
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self._refresh_lists)
-        disc_layout.addWidget(refresh_btn)
-
-        disc_group.setLayout(disc_layout)
-        layout.addWidget(disc_group)
-
-        my_group = QGroupBox("My Contacts")
-        my_layout = QVBoxLayout()
-
-        self.contacts_list = QListWidget()
-        self.contacts_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.contacts_list.customContextMenuRequested.connect(self._show_contacts_menu)
-        my_layout.addWidget(self.contacts_list)
-
-        add_btn = QPushButton("Add Contact Manually")
+        add_btn = QPushButton("+ Add Contact")
+        add_btn.setFixedHeight(36)
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {MeshTheme.ACCENT};
+                color: white; border: none; border-radius: 8px;
+                padding: 6px 18px; font-size: 13px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
         add_btn.clicked.connect(self._add_contact)
-        my_layout.addWidget(add_btn)
+        hdr_layout.addWidget(add_btn)
+        layout.addWidget(header)
 
-        my_group.setLayout(my_layout)
-        layout.addWidget(my_group)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        self.timer = QTimer()
-        self.timer.timeout.connect(self._refresh_lists)
-        self.timer.start(15000)
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        self.grid = QGridLayout(container)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(16)
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
 
-        self._refresh_lists()
+        self.cards = []
+        self._populate_contacts()
 
-    def _announce(self):
-        announced = False
-        if self.backend.lxmf_messenger:
-            announced = self.backend.lxmf_messenger.announce()
-        if not announced and self.rns_node:
-            announced = self.rns_node.announce_myself()
-
-        if announced:
-            QMessageBox.information(self, "Announced", "You are now visible on the network.")
+    def _populate_contacts(self):
+        if self.backend.contact_manager:
+            for contact in self.backend.contact_manager.get_all():
+                data = {
+                    'hash': contact.hash_hex,
+                    'display_name': contact.name,
+                    'status': 'online' if time.time() - contact.last_seen < 300 else 'offline',
+                }
+                self.add_contact(data)
         else:
-            QMessageBox.warning(self, "Error", "Could not announce")
+            sample_data = [
+                {'hash': 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6', 'display_name': 'Alice', 'status': 'online'},
+                {'hash': 'b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1', 'display_name': 'Bob', 'status': 'away'},
+                {'hash': 'c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2', 'display_name': 'Charlie (Relay)', 'status': 'online'},
+                {'hash': 'd4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2c3', 'display_name': 'Diana', 'status': 'offline'},
+                {'hash': 'e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2c3d4', 'display_name': 'Eve (Node)', 'status': 'online'},
+            ]
+            for data in sample_data:
+                self.add_contact(data)
 
-    def _refresh_lists(self):
-        query = self.search_input.text().strip().lower()
-
-        self.discovered_list.clear()
-        peers = self.rns_node.get_discovered_peers() if self.rns_node else []
-        for h, info in peers:
-            if query and query not in h[:12]:
-                continue
-            display = f"{info.get('name', h[:12])} — {int(time.time() - info.get('last_seen', 0))}s ago"
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, h)
-            self.discovered_list.addItem(item)
-
-        self.contacts_list.clear()
-        contacts = self.contact_mgr.get_all() if self.contact_mgr else []
-        for c in contacts:
-            if query and query not in c.name.lower() and query not in c.hash_hex.lower():
-                continue
-            display = f"{c.name} — {c.hash_hex[:12]}..."
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, c.hash_hex)
-            item.setData(Qt.ItemDataRole.ToolTipRole, f"Hash: {c.hash_hex}\nLast seen: {c.last_seen}")
-            self.contacts_list.addItem(item)
-
-    def _show_discovered_menu(self, pos):
-        item = self.discovered_list.itemAt(pos)
-        if not item:
-            return
-        hash_hex = item.data(Qt.ItemDataRole.UserRole)
-
-        menu = QMenu(self)
-        add_action = menu.addAction("Add to My Contacts")
-        add_action.triggered.connect(lambda: self._add_discovered(hash_hex))
-
-        copy_action = menu.addAction("Copy Hash")
-        copy_action.triggered.connect(lambda: self._copy_hash(hash_hex))
-
-        menu.exec(self.discovered_list.viewport().mapToGlobal(pos))
-
-    def _add_discovered(self, hash_hex):
-        name, ok = QInputDialog.getText(self, "Add Contact", "Name:", text=hash_hex[:12])
-        if ok and name:
-            self.contact_mgr.add_or_update(hash_hex, name=name)
-            self._refresh_lists()
-            QMessageBox.information(self, "Added", f"Added {name}")
-
-    def _copy_hash(self, h):
-        QApplication.clipboard().setText(h)
+    def add_contact(self, data):
+        card = ContactCard(data)
+        self.cards.append(card)
+        idx = len(self.cards) - 1
+        row = idx // 4
+        col = idx % 4
+        self.grid.addWidget(card, row, col)
 
     def _add_contact(self):
-        name, ok = QInputDialog.getText(self, "Add Contact", "Contact name:")
-        if not ok or not name:
-            return
-        hash_str, ok = QInputDialog.getText(self, "Add Contact", "Identity hash (64 hex chars):")
-        if ok and hash_str:
-            hash_str = hash_str.strip().lower()
-            if len(hash_str) == 64:
-                self.contact_mgr.add_or_update(hash_str, name=name)
-                self._refresh_lists()
-            else:
-                QMessageBox.warning(self, "Invalid", "Hash must be 64 hex characters.")
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Add Contact")
+        dialog.setLabelText("Enter destination identity hash:")
+        if dialog.exec():
+            hash_val = dialog.textValue().strip()
+            if hash_val:
+                data = {'hash': hash_val, 'display_name': hash_val[:16], 'status': 'offline'}
+                self.add_contact(data)
 
-    def _show_contacts_menu(self, pos):
-        item = self.contacts_list.itemAt(pos)
-        if not item:
-            return
-        hash_hex = item.data(Qt.ItemDataRole.UserRole)
-
-        menu = QMenu(self)
-        copy_action = menu.addAction("Copy Hash")
-        copy_action.triggered.connect(lambda: self._copy_hash(hash_hex))
-
-        chat_action = menu.addAction("Start Chat")
-        chat_action.triggered.connect(lambda: self._start_chat_with(hash_hex))
-
-        rename_action = menu.addAction("Rename")
-        rename_action.triggered.connect(lambda: self._rename_contact(hash_hex))
-
-        delete_action = menu.addAction("Delete")
-        delete_action.triggered.connect(lambda: self._delete_contact(hash_hex))
-
-        menu.exec(self.contacts_list.viewport().mapToGlobal(pos))
-
-    def _start_chat_with(self, hash_hex):
-        mw = self.backend.main_window
-        if mw:
-            mw.dest_input.setText(hash_hex)
-            mw.stack.setCurrentIndex(0)
-
-    def _rename_contact(self, hash_hex):
-        c = self.contact_mgr.get(hash_hex)
-        if not c:
-            return
-        name, ok = QInputDialog.getText(self, "Rename", "New name:", text=c.name)
-        if ok and name:
-            self.contact_mgr.add_or_update(hash_hex, name=name)
-            self._refresh_lists()
-
-    def _delete_contact(self, hash_hex):
-        c = self.contact_mgr.get(hash_hex)
-        if c:
-            reply = QMessageBox.question(self, "Delete", f"Delete {c.name}?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.contact_mgr.remove(hash_hex)
-                self._refresh_lists()
+    def _filter_cards(self, text):
+        for card in self.cards:
+            name = card.contact_data.get('display_name', '')
+            hash_val = card.contact_data.get('hash', '')
+            visible = text.lower() in name.lower() or text.lower() in hash_val.lower()
+            card.setVisible(visible)

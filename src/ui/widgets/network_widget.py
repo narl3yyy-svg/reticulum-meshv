@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QGroupBox, QTreeWidget, QTreeWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt, QTimer
+from src.config.theme import MeshTheme
 
 
 class NetworkWidget(QWidget):
@@ -19,13 +20,14 @@ class NetworkWidget(QWidget):
         layout.setSpacing(12)
 
         title = QLabel("Network Visualizer")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
         layout.addWidget(title)
 
         header = QHBoxLayout()
         self.status_label = QLabel("Monitoring mesh network...")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; background: transparent;")
         header.addWidget(self.status_label)
+        header.addStretch()
 
         refresh_btn = QPushButton("Refresh Now")
         refresh_btn.clicked.connect(self._refresh)
@@ -34,36 +36,71 @@ class NetworkWidget(QWidget):
         layout.addLayout(header)
 
         peer_group = QGroupBox("Discovered Peers")
+        peer_group.setStyleSheet(f"""
+            QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                padding: 16px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+        """)
         peer_layout = QVBoxLayout()
 
         self.peer_tree = QTreeWidget()
         self.peer_tree.setHeaderLabels(["Peer", "Hash", "Last Seen"])
         self.peer_tree.header().setStretchLastSection(True)
         self.peer_tree.setAlternatingRowColors(True)
+        self.peer_tree.setStyleSheet(f"""
+            QTreeWidget {{ background: transparent; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; }}
+            QTreeWidget::item {{ color: {MeshTheme.TEXT}; padding: 4px 8px; }}
+            QTreeWidget::item:hover {{ background: {MeshTheme.SURFACE_VARIANT}; }}
+            QHeaderView::section {{ background: {MeshTheme.SURFACE}; color: {MeshTheme.TEXT_MUTED};
+                border: none; border-bottom: 1px solid {MeshTheme.BORDER}; padding: 6px 8px; font-weight: 600; }}
+        """)
         peer_layout.addWidget(self.peer_tree)
 
         peer_group.setLayout(peer_layout)
         layout.addWidget(peer_group)
 
         iface_group = QGroupBox("Active Interfaces")
+        iface_group.setStyleSheet(f"""
+            QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                padding: 16px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+        """)
         iface_layout = QVBoxLayout()
 
         self.iface_tree = QTreeWidget()
         self.iface_tree.setHeaderLabels(["Interface", "Type", "Status", "RX", "TX"])
         self.iface_tree.header().setStretchLastSection(True)
         self.iface_tree.setAlternatingRowColors(True)
+        self.iface_tree.setStyleSheet(f"""
+            QTreeWidget {{ background: transparent; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; }}
+            QTreeWidget::item {{ color: {MeshTheme.TEXT}; padding: 4px 8px; }}
+            QTreeWidget::item:hover {{ background: {MeshTheme.SURFACE_VARIANT}; }}
+            QHeaderView::section {{ background: {MeshTheme.SURFACE}; color: {MeshTheme.TEXT_MUTED};
+                border: none; border-bottom: 1px solid {MeshTheme.BORDER}; padding: 6px 8px; font-weight: 600; }}
+        """)
         iface_layout.addWidget(self.iface_tree)
 
         iface_group.setLayout(iface_layout)
         layout.addWidget(iface_group)
 
         path_group = QGroupBox("Known Paths")
+        path_group.setStyleSheet(f"""
+            QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                padding: 16px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+        """)
         path_layout = QVBoxLayout()
 
         self.path_text = QTextEdit()
         self.path_text.setReadOnly(True)
         self.path_text.setMaximumHeight(120)
-        self.path_text.setFontFamily("monospace")
+        self.path_text.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; color: {MeshTheme.TEXT}; background: {MeshTheme.SURFACE_VARIANT}; border: none; border-radius: 8px; padding: 8px;")
         path_layout.addWidget(self.path_text)
 
         path_group.setLayout(path_layout)

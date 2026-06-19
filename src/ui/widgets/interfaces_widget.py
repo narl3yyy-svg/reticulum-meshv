@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from pathlib import Path
 import subprocess
+from src.config.theme import MeshTheme
 
 
 class InterfacesWidget(QWidget):
@@ -24,21 +25,31 @@ class InterfacesWidget(QWidget):
         layout.setSpacing(16)
 
         title = QLabel("Reticulum Interfaces & Link Status")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
         layout.addWidget(title)
+
+        def group_style():
+            return f"""
+                QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                    border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                    padding: 16px; }}
+                QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                    padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+            """
 
         # Connection Status
         status_group = QGroupBox("Connection Status")
+        status_group.setStyleSheet(group_style())
         status_layout = QVBoxLayout()
 
         self.status_summary = QLabel("Click Refresh to check links")
-        self.status_summary.setStyleSheet("font-size: 14px; padding: 8px; background: #2a2a2a; border-radius: 6px;")
+        self.status_summary.setStyleSheet(f"font-size: 14px; padding: 8px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 8px; color: {MeshTheme.TEXT};")
         status_layout.addWidget(self.status_summary)
 
         self.status_details = QTextEdit()
         self.status_details.setReadOnly(True)
         self.status_details.setMaximumHeight(110)
-        self.status_details.setFontFamily("monospace")
+        self.status_details.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; color: {MeshTheme.TEXT}; background: {MeshTheme.SURFACE_VARIANT}; border: none; border-radius: 8px; padding: 8px;")
         status_layout.addWidget(self.status_details)
 
         refresh_btn = QPushButton("Refresh Status")
@@ -50,6 +61,7 @@ class InterfacesWidget(QWidget):
 
         # Direct Connect to Phone
         phone_group = QGroupBox("Connect to Android Phone")
+        phone_group.setStyleSheet(group_style())
         phone_layout = QVBoxLayout()
 
         ip_row = QHBoxLayout()
@@ -73,10 +85,11 @@ class InterfacesWidget(QWidget):
 
         # Config Editor
         editor_group = QGroupBox("Advanced Configuration Editor")
+        editor_group.setStyleSheet(group_style())
         editor_layout = QVBoxLayout()
 
         self.config_editor = QTextEdit()
-        self.config_editor.setFontFamily("monospace")
+        self.config_editor.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; color: {MeshTheme.TEXT}; background: {MeshTheme.SURFACE_VARIANT}; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; padding: 8px;")
         self.config_editor.setPlainText(self._load_config_text())
         editor_layout.addWidget(self.config_editor)
 
@@ -94,19 +107,29 @@ class InterfacesWidget(QWidget):
 
         # Restart Options (with Experimental restored)
         restart_group = QGroupBox("Restart Options")
+        restart_group.setStyleSheet(group_style())
         restart_layout = QVBoxLayout()
 
         note = QLabel("Full app restart is safest. Experimental option tries a lighter reload.")
         note.setWordWrap(True)
+        note.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; background: transparent;")
         restart_layout.addWidget(note)
 
         safe_btn = QPushButton("Restart Application (Recommended & Safe)")
-        safe_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
+        safe_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.WARNING}; color: white; border: none;
+                border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: #f97316; }}
+        """)
         safe_btn.clicked.connect(self._restart_app)
         restart_layout.addWidget(safe_btn)
 
         exp_btn = QPushButton("Try Restart Reticulum Only (Experimental)")
-        exp_btn.setStyleSheet("background-color: #555555; color: white;")
+        exp_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.SURFACE_LIGHT}; color: {MeshTheme.TEXT_MUTED};
+                border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.TEXT_DIM}; color: {MeshTheme.TEXT}; }}
+        """)
         exp_btn.clicked.connect(self._try_experimental_rns_restart)
         restart_layout.addWidget(exp_btn)
 
@@ -124,13 +147,13 @@ class InterfacesWidget(QWidget):
             if "TCPClientInterface" in output or "TCPInterface" in output:
                 if "Down" in output or "Status : Down" in output:
                     self.status_summary.setText("TCP Link to Phone: Down / Not Connected")
-                    self.status_summary.setStyleSheet("color: orange; font-size: 14px; font-weight: bold;")
+                    self.status_summary.setStyleSheet(f"color: {MeshTheme.WARNING}; font-size: 14px; font-weight: 600;")
                 else:
                     self.status_summary.setText("TCP Link to Phone: Up / Connected")
-                    self.status_summary.setStyleSheet("color: #4ade80; font-size: 14px; font-weight: bold;")
+                    self.status_summary.setStyleSheet(f"color: {MeshTheme.SUCCESS}; font-size: 14px; font-weight: 600;")
             else:
                 self.status_summary.setText("No active TCP client to phone detected.")
-                self.status_summary.setStyleSheet("color: #888; font-size: 14px;")
+                self.status_summary.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 14px;")
 
         except Exception as e:
             self.status_details.setPlainText(f"Error: {e}")

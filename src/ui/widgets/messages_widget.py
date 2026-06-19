@@ -1,296 +1,450 @@
-"""Enhanced Messages widget with LXMF support and conversation management."""
+"""MeshChatX-inspired messages widget with reliable bubble rendering."""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QFrame, QSizePolicy, QMessageBox, QSplitter,
-    QListWidget, QListWidgetItem, QTextEdit
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QPushButton,
+    QLabel, QLineEdit, QTextEdit, QScrollArea, QFrame, QSizePolicy,
+    QApplication
 )
-from PyQt6.QtCore import Qt, QTimer
-from datetime import datetime
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QDateTime, QEvent
+from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
+from src.config.theme import MeshTheme
+
+
+STATUS_SYMBOLS = {
+    'sending': '\u23F3',
+    'sent': '\u2713',
+    'delivered': '\u2713\u2713',
+    'read': '\u2713\u2713',
+    'failed': '\u274C',
+}
 
 
 class ChatBubble(QFrame):
-    def __init__(self, text: str, is_sent: bool = True, timestamp: str = "", sender_label: str = ""):
-        super().__init__()
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+    def __init__(self, text, sender, timestamp, is_self=False, status='sent', parent=None):
+        super().__init__(parent)
+        self._is_self = is_self
+        self._status = status
+        self._sender = sender
+        self._timestamp = timestamp
+        t = MeshTheme
 
-        if is_sent:
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: #3a7bd5;
-                    border-radius: 16px;
+        if is_self:
+            self.setStyleSheet(f"""
+                ChatBubble {{
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 {t.CHAT_SENT_GRADIENT_1}, stop:1 {t.CHAT_SENT_GRADIENT_2});
+                    border-radius: 12px;
                     padding: 10px 14px;
-                    margin: 4px 8px 4px 70px;
-                }
-                QLabel { color: white; }
+                }}
             """)
-            alignment = Qt.AlignmentFlag.AlignRight
         else:
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: #3a3a3c;
-                    border-radius: 16px;
+            self.setStyleSheet(f"""
+                ChatBubble {{
+                    background-color: {t.CHAT_RECEIVED_BG};
+                    border: 1px solid {t.CHAT_RECEIVED_BORDER};
+                    border-radius: 12px;
                     padding: 10px 14px;
-                    margin: 4px 70px 4px 8px;
-                }
-                QLabel { color: #e0e0e0; }
+                }}
             """)
-            alignment = Qt.AlignmentFlag.AlignLeft
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        if sender_label and not is_sent:
-            sender = QLabel(sender_label)
-            sender.setStyleSheet("font-size: 10px; color: #8888ff; font-weight: bold;")
-            layout.addWidget(sender)
+        if not is_self:
+            name_label = QLabel(sender)
+            name_label.setStyleSheet(f"color: {t.ACCENT}; font-size: 11px; font-weight: 600; background: transparent;")
+            layout.addWidget(name_label)
 
         text_label = QLabel(text)
         text_label.setWordWrap(True)
-        text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        text_color = '#ffffff' if is_self else t.TEXT
+        text_label.setStyleSheet(f"color: {text_color}; font-size: 13px; background: transparent;")
         layout.addWidget(text_label)
 
-        if timestamp:
-            time_label = QLabel(timestamp)
-            time_label.setStyleSheet("font-size: 10px; color: #aaaaaa;")
-            time_label.setAlignment(alignment)
-            layout.addWidget(time_label)
+        meta_layout = QHBoxLayout()
+        meta_layout.setContentsMargins(0, 0, 0, 0)
+
+        time_label = QLabel(timestamp.toString('HH:mm'))
+        time_color = '#ffffffb3' if is_self else t.TEXT_DIM
+        time_label.setStyleSheet(f"color: {time_color}; font-size: 10px; background: transparent;")
+        meta_layout.addWidget(time_label)
+
+        if is_self:
+            meta_layout.addStretch()
+            status_str = STATUS_SYMBOLS.get(status, '')
+            status_color = MeshTheme.SUCCESS if status == 'read' else '#ffffffb3'
+            status_label = QLabel(status_str)
+            status_label.setStyleSheet(f"color: {status_color}; font-size: 10px; background: transparent;")
+            meta_layout.addWidget(status_label)
+
+        layout.addLayout(meta_layout)
+
+    def set_message(self, text):
+        self.findChild(QLabel).setText(text)
+
+
+class ConversationListItem(QFrame):
+    selected = pyqtSignal(str)
+
+    def __init__(self, conv_id, display_name, last_message, timestamp, unread=0, parent=None):
+        super().__init__(parent)
+        self.conv_id = conv_id
+        self._display = display_name
+        self._last_msg = last_message
+        self._ts = timestamp
+        self._unread = unread
+        self._selected = False
+        self.setFixedHeight(68)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(12)
+
+        avatar = QLabel(display_name[0].upper() if display_name else '?')
+        avatar.setFixedSize(44, 44)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet(f"""
+            background-color: {MeshTheme.SURFACE_LIGHT};
+            color: {MeshTheme.ACCENT};
+            font-size: 18px; font-weight: 700;
+            border-radius: 22px;
+        """)
+        layout.addWidget(avatar)
+
+        text_wrap = QVBoxLayout()
+        text_wrap.setContentsMargins(0, 0, 0, 0)
+        text_wrap.setSpacing(2)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        name_label = QLabel(display_name)
+        name_label.setStyleSheet(f"color: {MeshTheme.TEXT}; font-size: 13px; font-weight: 600; background: transparent;")
+        top_row.addWidget(name_label)
+        top_row.addStretch()
+        ts_label = QLabel(timestamp.toString('HH:mm') if timestamp else '')
+        ts_label.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 10px; background: transparent;")
+        top_row.addWidget(ts_label)
+        text_wrap.addLayout(top_row)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+        msg_label = QLabel(last_message[:60])
+        msg_label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        bottom_row.addWidget(msg_label, 1)
+        if unread > 0:
+            badge = QLabel(str(min(unread, 99)))
+            badge.setFixedSize(22, 22)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setStyleSheet(f"""
+                background-color: {MeshTheme.ACCENT}; color: white;
+                font-size: 10px; font-weight: 700; border-radius: 11px;
+            """)
+            bottom_row.addWidget(badge)
+        text_wrap.addLayout(bottom_row)
+
+        layout.addLayout(text_wrap, 1)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.selected.emit(self.conv_id)
+
+    def set_selected(self, sel):
+        self._selected = sel
+        bg = MeshTheme.SURFACE_VARIANT if sel else 'transparent'
+        self.setStyleSheet(f"background-color: {bg}; border-radius: 0;")
+
+    def update_message(self, msg, ts=None):
+        self._last_msg = msg
+        if ts:
+            self._ts = ts
+        labels = self.findChildren(QLabel)
+        if len(labels) >= 3:
+            labels[2].setText(msg[:60])
+        if ts and len(labels) >= 2:
+            labels[1].setText(ts.toString('HH:mm'))
+        self.update()
 
 
 class MessagesWidget(QWidget):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.rns_node = backend.rns_node
-        self.lxmf = backend.lxmf_messenger
-        self.current_dest = ""
-        self.current_conv = []
-        self.init_ui()
-
-    def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-
-        header = QLabel("Messages")
-        header.setStyleSheet("font-size: 20px; font-weight: bold;")
-        layout.addWidget(header)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
+        layout.addWidget(splitter)
 
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 4, 0)
+        self.conversation_panel = self._build_conversation_panel()
+        splitter.addWidget(self.conversation_panel)
+        splitter.setStretchFactor(0, 0)
 
-        search_row = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search contacts...")
-        self.search_input.textChanged.connect(self._filter_conversations)
-        search_row.addWidget(self.search_input)
-        left_layout.addLayout(search_row)
+        self.chat_panel = self._build_chat_panel()
+        splitter.addWidget(self.chat_panel)
+        splitter.setStretchFactor(1, 1)
 
-        self.conv_list = QListWidget()
-        self.conv_list.itemClicked.connect(self._on_conv_selected)
-        left_layout.addWidget(self.conv_list)
+        splitter.setSizes([320, 700])
 
-        splitter.addWidget(left_panel)
+        self.conversations = {}
+        self.current_conv_id = None
+        self._populate_conversations()
 
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(4, 0, 0, 0)
+    def _build_conversation_panel(self):
+        panel = QFrame()
+        panel.setStyleSheet(f"background-color: {MeshTheme.SIDEBAR_BG};")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        dest_row = QHBoxLayout()
-        dest_row.addWidget(QLabel("To:"))
-        self.dest_input = QLineEdit()
-        self.dest_input.setPlaceholderText("64-char destination hash")
-        self.dest_input.setMinimumHeight(28)
-        dest_row.addWidget(self.dest_input, 1)
+        header = QWidget()
+        header.setFixedHeight(64)
+        hdr_layout = QHBoxLayout(header)
+        hdr_layout.setContentsMargins(16, 0, 16, 0)
+        title = QLabel("Messages")
+        title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
+        hdr_layout.addWidget(title)
+        hdr_layout.addStretch()
+        new_btn = QPushButton("+")
+        new_btn.setFixedSize(32, 32)
+        new_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {MeshTheme.ACCENT}; color: white; border: none;
+                border-radius: 16px; font-size: 18px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
+        new_btn.clicked.connect(self._new_conversation)
+        hdr_layout.addWidget(new_btn)
+        layout.addWidget(header)
 
-        start_btn = QPushButton("Start Chat")
-        start_btn.setMinimumHeight(28)
-        start_btn.clicked.connect(self._start_chat)
-        dest_row.addWidget(start_btn)
+        search = QLineEdit()
+        search.setPlaceholderText("Search conversations...")
+        search.setFixedHeight(38)
+        search.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
+                padding: 8px 12px; font-size: 13px; margin: 8px 12px;
+            }}
+            QLineEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
+            QLineEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
+        """)
+        search.textChanged.connect(self._filter_conversations)
+        layout.addWidget(search)
 
-        announce_btn = QPushButton("Announce")
-        announce_btn.setMinimumHeight(28)
-        announce_btn.clicked.connect(self._announce)
-        dest_row.addWidget(announce_btn)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        right_layout.addLayout(dest_row)
+        self.conv_list = QWidget()
+        self.conv_layout = QVBoxLayout(self.conv_list)
+        self.conv_layout.setContentsMargins(0, 0, 0, 0)
+        self.conv_layout.setSpacing(0)
+        self.conv_layout.addStretch()
+        scroll.setWidget(self.conv_list)
 
-        self.status_label = QLabel("Enter a destination hash and click Start Chat")
-        self.status_label.setStyleSheet("color: #888; font-size: 12px;")
-        right_layout.addWidget(self.status_label)
+        layout.addWidget(scroll, 1)
+        return panel
 
-        self.chat_scroll = QScrollArea()
-        self.chat_scroll.setWidgetResizable(True)
-        self.chat_scroll.setStyleSheet("QScrollArea { border: none; }")
+    def _build_chat_panel(self):
+        panel = QFrame()
+        panel.setStyleSheet(f"background-color: {MeshTheme.CANVAS};")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.chat_container = QWidget()
-        self.chat_layout = QVBoxLayout(self.chat_container)
-        self.chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.chat_layout.setSpacing(6)
-        self.chat_layout.addStretch()
+        self.chat_header = QFrame()
+        self.chat_header.setFixedHeight(64)
+        self.chat_header.setStyleSheet(f"background-color: {MeshTheme.SURFACE}; border-bottom: 1px solid {MeshTheme.BORDER};")
+        ch_layout = QHBoxLayout(self.chat_header)
+        ch_layout.setContentsMargins(20, 0, 20, 0)
+        self.chat_title = QLabel("Select a conversation")
+        self.chat_title.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {MeshTheme.TEXT}; background: transparent;")
+        ch_layout.addWidget(self.chat_title)
+        ch_layout.addStretch()
+        layout.addWidget(self.chat_header)
 
-        self.chat_scroll.setWidget(self.chat_container)
-        right_layout.addWidget(self.chat_scroll, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        input_row = QHBoxLayout()
-        self.message_input = QLineEdit()
+        self.messages_container = QWidget()
+        self.messages_container.setStyleSheet("background: transparent;")
+        self.messages_layout = QVBoxLayout(self.messages_container)
+        self.messages_layout.setContentsMargins(12, 8, 12, 8)
+        self.messages_layout.setSpacing(6)
+        self.messages_layout.addStretch()
+        scroll.setWidget(self.messages_container)
+        layout.addWidget(scroll, 1)
+
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background-color: {MeshTheme.SURFACE}; border-top: 1px solid {MeshTheme.BORDER};")
+        inp_layout = QHBoxLayout(input_frame)
+        inp_layout.setContentsMargins(16, 10, 16, 10)
+
+        self.message_input = QTextEdit()
         self.message_input.setPlaceholderText("Type a message...")
-        self.message_input.setMinimumHeight(36)
-        self.message_input.returnPressed.connect(self._send_message)
-        input_row.addWidget(self.message_input, 1)
+        self.message_input.setFixedHeight(40)
+        self.message_input.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
+                border: 1px solid {MeshTheme.INPUT_BORDER};
+                border-radius: 20px; padding: 8px 16px; font-size: 13px;
+            }}
+            QTextEdit:focus {{ border: 2px solid {MeshTheme.ACCENT}; }}
+            QTextEdit::placeholder {{ color: {MeshTheme.TEXT_DIM}; }}
+        """)
+        inp_layout.addWidget(self.message_input, 1)
 
-        send_btn = QPushButton("Send")
-        send_btn.setMinimumHeight(36)
-        send_btn.setStyleSheet("font-weight: bold;")
+        attach_btn = QPushButton("\U0001F4CE")
+        attach_btn.setFixedSize(40, 40)
+        attach_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {MeshTheme.BORDER};
+                border-radius: 20px; font-size: 16px;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.SURFACE_VARIANT}; }}
+        """)
+        attach_btn.clicked.connect(self._attach_file)
+        inp_layout.addWidget(attach_btn)
+
+        send_btn = QPushButton("\u27A4")
+        send_btn.setFixedSize(40, 40)
+        send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {MeshTheme.ACCENT}; color: white; border: none;
+                border-radius: 20px; font-size: 20px;
+            }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
         send_btn.clicked.connect(self._send_message)
-        input_row.addWidget(send_btn)
+        inp_layout.addWidget(send_btn)
 
-        right_layout.addLayout(input_row)
+        self.message_input.installEventFilter(self)
 
-        splitter.addWidget(right_panel)
-        splitter.setSizes([200, 800])
-        layout.addWidget(splitter, 1)
+        layout.addWidget(input_frame)
+        return panel
 
-        self.scroll_timer = QTimer()
-        self.scroll_timer.setSingleShot(True)
-        self.scroll_timer.timeout.connect(self._scroll_to_bottom)
+    def eventFilter(self, obj, event):
+        if obj is self.message_input and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Return and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                self._send_message()
+                return True
+        return super().eventFilter(obj, event)
 
-        self._refresh_conversations()
+    def _populate_conversations(self):
+        contacts = self.backend.contact_manager.get_all() if self.backend.contact_manager else []
+        for contact in contacts[:10]:
+            conv_id = contact.hash_hex
+            name = contact.name or conv_id[:8]
+            self.add_conversation(conv_id, name)
 
-    def _announce(self):
-        if self.lxmf:
-            self.lxmf.announce()
-            self.status_label.setText("Announced on LXMF network")
-        elif self.rns_node:
-            self.rns_node.announce_myself()
-            self.status_label.setText("Announced on Reticulum network")
+    def add_conversation(self, conv_id, display_name):
+        if conv_id in self.conversations:
+            return
+        item = ConversationListItem(conv_id, display_name, "No messages yet",
+                                    QDateTime.currentDateTime(), 0)
+        item.selected.connect(self._select_conversation)
+        self.conversations[conv_id] = item
+        self.conv_layout.insertWidget(self.conv_layout.count() - 1, item)
 
-    def _start_chat(self):
-        dest = self.dest_input.text().strip().lower().replace(" ", "").replace("-", "")
-        if len(dest) == 64:
-            self.current_dest = dest
-            self.current_conv = []
-            self._clear_chat()
-            self.status_label.setText(f"Chat active with {dest[:12]}...")
-            self._add_system_message(f"Started chat with {dest[:12]}...")
+    def _select_conversation(self, conv_id):
+        for cid, item in self.conversations.items():
+            item.set_selected(cid == conv_id)
+        self.current_conv_id = conv_id
+        name = conv_id
+        for cid, item in self.conversations.items():
+            if cid == conv_id:
+                name = item._display
+                break
+        self.chat_title.setText(name)
+        self._load_messages(conv_id)
 
-            if self.lxmf:
-                self.current_conv = self.lxmf.get_conversation(dest)
-                for msg in self.current_conv:
-                    is_sent = msg.get("is_outgoing", False) or msg.get("sender", "") == self.rns_node.get_identity_hash()
-                    self._add_bubble(msg["content"], is_sent=is_sent, timestamp=self._fmt_time(msg.get("timestamp", 0)))
-        else:
-            self.status_label.setText("Hash must be exactly 64 hex characters.")
+    def _load_messages(self, conv_id):
+        for i in reversed(range(self.messages_layout.count())):
+            w = self.messages_layout.itemAt(i).widget()
+            if w and w is not self.messages_layout.itemAt(self.messages_layout.count() - 1).widget():
+                w.deleteLater()
 
     def _send_message(self):
-        if not self.current_dest:
-            self.status_label.setText("Start a chat first")
+        text = self.message_input.toPlainText().strip()
+        if not text or not self.current_conv_id:
             return
-
-        text = self.message_input.text().strip()
-        if not text:
-            return
-
-        self._add_bubble(text, is_sent=True)
+        ts = QDateTime.currentDateTime()
+        bubble = ChatBubble(text, "me", ts, True, 'sent')
+        self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignRight)
         self.message_input.clear()
+        conv = self.conversations.get(self.current_conv_id)
+        if conv:
+            conv.update_message(text, ts)
 
-        sent = False
-        if self.lxmf:
-            sent = self.lxmf.send_message(self.current_dest, text)
+    def _filter_conversations(self, text):
+        for conv_id, item in self.conversations.items():
+            item.setVisible(text.lower() in item._display.lower())
 
-        if not sent and self.rns_node:
-            try:
-                import RNS
-                dest_bytes = bytes.fromhex(self.current_dest)
-                remote_id = RNS.Identity.recall(dest_bytes)
-                if remote_id:
-                    destination = RNS.Destination(remote_id, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
-                else:
-                    destination = RNS.Destination(self.rns_node.identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
-                    destination.hash = dest_bytes
-                RNS.Resource(text.encode("utf-8"), destination)
-                sent = True
-            except:
-                pass
+    def _new_conversation(self):
+        from PyQt6.QtWidgets import QInputDialog
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("New Conversation")
+        dialog.setLabelText("Enter destination hash:")
+        if dialog.exec():
+            dest = dialog.textValue().strip()
+            if dest:
+                self.add_conversation(dest, dest[:16])
+                self._select_conversation(dest)
 
-        if sent:
-            self.status_label.setText("Message sent")
-        else:
-            self.status_label.setText("Send failed")
+    def _attach_file(self):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Attach File")
+        if path:
+            import os
+            fname = os.path.basename(path)
+            size = os.path.getsize(path)
+            self._add_system_message(f"File: {fname} ({size:,} bytes)")
 
-    def _on_conv_selected(self, item):
-        hash_hex = item.data(Qt.ItemDataRole.UserRole)
-        if hash_hex:
-            self.dest_input.setText(hash_hex)
-            self._start_chat()
-
-    def _filter_conversations(self):
-        self._refresh_conversations()
-
-    def _refresh_conversations(self):
-        self.conv_list.clear()
-        query = self.search_input.text().strip().lower()
-
-        contacts = self.backend.contact_manager.get_all() if self.backend.contact_manager else []
-        seen = set()
-        for c in contacts:
-            if query and query not in c.name.lower() and query not in c.hash_hex.lower():
-                continue
-            item = QListWidgetItem(f"{c.name}")
-            item.setData(Qt.ItemDataRole.UserRole, c.hash_hex)
-            item.setData(Qt.ItemDataRole.ToolTipRole, c.hash_hex)
-            self.conv_list.addItem(item)
-            seen.add(c.hash_hex)
-
-        if self.lxmf:
-            for conv_id, msgs in self.lxmf.get_conversations().items():
-                if conv_id in seen:
-                    continue
-                if query and query not in conv_id[:12]:
-                    continue
-                item = QListWidgetItem(f"{conv_id[:12]}...")
-                item.setData(Qt.ItemDataRole.UserRole, conv_id)
-                self.conv_list.addItem(item)
+    def _add_system_message(self, text):
+        label = QLabel(text)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"font-size: 11px; color: {MeshTheme.TEXT_DIM}; background: transparent; padding: 4px;")
+        self.messages_layout.insertWidget(self.messages_layout.count() - 1, label)
 
     def receive_text_message(self, sender_hash: str, text: str):
-        short = sender_hash[:12] if len(sender_hash) > 12 else sender_hash
-        self._add_bubble(f"[{short}] {text}", is_sent=False)
+        if sender_hash not in self.conversations:
+            self.add_conversation(sender_hash, sender_hash[:16])
+        ts = QDateTime.currentDateTime()
+        bubble = ChatBubble(text, sender_hash, ts, False, 'received')
+        if self.current_conv_id == sender_hash:
+            self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignLeft)
+        conv = self.conversations.get(sender_hash)
+        if conv:
+            conv.update_message(text, ts)
 
     def receive_lxmf_message(self, sender_hash: str, content: str, title: str, timestamp: float):
-        if sender_hash == self.current_dest:
-            self._add_bubble(content, is_sent=False, timestamp=self._fmt_time(timestamp))
-        self._refresh_conversations()
+        if sender_hash not in self.conversations:
+            name = sender_hash[:16]
+            if self.backend.contact_manager:
+                contact = self.backend.contact_manager.get(sender_hash)
+                if contact:
+                    name = contact.name
+            self.add_conversation(sender_hash, name)
+        ts = QDateTime.fromSecsSinceEpoch(int(timestamp)) if timestamp else QDateTime.currentDateTime()
+        bubble = ChatBubble(content, sender_hash, ts, False, 'received')
+        if self.current_conv_id == sender_hash:
+            self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignLeft)
+        conv = self.conversations.get(sender_hash)
+        if conv:
+            conv.update_message(content[:60], ts)
 
-    def _add_system_message(self, text: str):
-        label = QLabel(f"• {text}")
-        label.setStyleSheet("color: #888; font-style: italic; padding: 4px 8px;")
-        self.chat_layout.insertWidget(self.chat_layout.count() - 1, label)
-        self._scroll_to_bottom()
-
-    def _add_bubble(self, text: str, is_sent: bool = True, timestamp: str = ""):
-        if not timestamp:
-            timestamp = datetime.now().strftime("%H:%M")
-        bubble = ChatBubble(text, is_sent=is_sent, timestamp=timestamp)
-        self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
-        self._scroll_to_bottom()
-
-    def _clear_chat(self):
-        while self.chat_layout.count() > 1:
-            item = self.chat_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-    def _fmt_time(self, ts: float) -> str:
-        if ts:
-            return datetime.fromtimestamp(ts).strftime("%H:%M")
-        return ""
-
-    def _scroll_to_bottom(self):
-        self.chat_scroll.verticalScrollBar().setValue(
-            self.chat_scroll.verticalScrollBar().maximum()
-        )
+    def statusBar(self):
+        p = self.parent()
+        while p:
+            if hasattr(p, 'statusBar'):
+                return p.statusBar()
+            p = p.parent()
+        return None

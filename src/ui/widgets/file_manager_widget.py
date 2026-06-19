@@ -1,16 +1,17 @@
-"""File transfer widget - clean folder names (no random suffix)."""
+"""File transfer widget with MeshChatX styling and unlimited file transfer support."""
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QFileDialog, QProgressBar, QLabel,
-    QTableWidget, QTableWidgetItem, QMessageBox, QGroupBox
+    QTableWidget, QTableWidgetItem, QMessageBox, QGroupBox,
+    QApplication
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from pathlib import Path
 import zipfile
 import tempfile
 import os
+from src.config.theme import MeshTheme
 
 
 class FileTransferThread(QThread):
@@ -52,85 +53,139 @@ class FileManagerWidget(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
 
-        identity_group = QGroupBox("Your Identity (share this hash so others can send you files)")
-        identity_group.setStyleSheet("QGroupBox { font-weight: bold; } ")
+        def group_style():
+            return f"""
+                QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                    border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                    padding: 16px; }}
+                QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                    padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+            """
+
+        title = QLabel("Large File Transfers")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Send files or folders of any size over the Reticulum mesh network. Folders are sent as zip, auto-extracted on self-send.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        layout.addWidget(subtitle)
+
+        identity_group = QGroupBox("Your Identity")
+        identity_group.setStyleSheet(group_style())
         identity_layout = QHBoxLayout()
 
         self.identity_label = QLabel(self.rns_node.get_short_identity_hash())
-        self.identity_label.setStyleSheet("font-family: monospace; font-size: 14px; padding: 4px; background: #2a2a2a; border-radius: 4px;")
+        self.identity_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 12px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 6px; color: {MeshTheme.TEXT};")
         self.identity_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        copy_btn = QPushButton("📋 Copy Hash")
-        copy_btn.setMinimumHeight(32)
+        copy_btn = QPushButton("Copy Hash")
+        copy_btn.setFixedHeight(32)
+        copy_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ACCENT}; color: white; border: none;
+                border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
         copy_btn.clicked.connect(self._copy_identity)
 
         full_hash_btn = QPushButton("Show Full Hash")
-        full_hash_btn.setMinimumHeight(32)
+        full_hash_btn.setFixedHeight(32)
+        full_hash_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: transparent; color: {MeshTheme.TEXT_MUTED};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 6px;
+                padding: 6px 14px; font-size: 12px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.SURFACE_VARIANT}; color: {MeshTheme.TEXT}; }}
+        """)
         full_hash_btn.clicked.connect(self._show_full_identity)
 
-        identity_layout.addWidget(QLabel("Hash:"), 0)
+        label = QLabel("Hash:")
+        label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; background: transparent;")
+        identity_layout.addWidget(label)
         identity_layout.addWidget(self.identity_label, 1)
-        identity_layout.addWidget(copy_btn, 0)
-        identity_layout.addWidget(full_hash_btn, 0)
+        identity_layout.addWidget(copy_btn)
+        identity_layout.addWidget(full_hash_btn)
         identity_group.setLayout(identity_layout)
         layout.addWidget(identity_group)
 
-        tip = QLabel("💡 Click <b>Copy Hash</b> or <b>Show Full Hash</b> to get your identity. Paste the recipient's full hash below.")
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: #aaa; font-size: 12px;")
-        layout.addWidget(tip)
-
-        title = QLabel("Large File Transfers")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; margin-top: 12px;")
-        layout.addWidget(title)
-
-        subtitle = QLabel("Folders are sent as real folders (zipped internally + auto-extracted on receive)")
-        layout.addWidget(subtitle)
+        send_section = QWidget()
+        send_section.setStyleSheet("background: transparent;")
+        send_layout = QVBoxLayout(send_section)
+        send_layout.setContentsMargins(0, 0, 0, 0)
 
         file_layout = QHBoxLayout()
         self.file_path_input = QLineEdit()
         self.file_path_input.setPlaceholderText("Select a file or folder...")
         self.file_path_input.setReadOnly(True)
+        self.file_path_input.setFixedHeight(38)
 
         browse_file_btn = QPushButton("Browse File")
-        browse_file_btn.clicked.connect(self._browse_file)
-
+        browse_file_btn.setFixedHeight(36)
         browse_folder_btn = QPushButton("Browse Folder")
+        browse_folder_btn.setFixedHeight(36)
+        for btn in (browse_file_btn, browse_folder_btn):
+            btn.setStyleSheet(f"""
+                QPushButton {{ background-color: {MeshTheme.SURFACE_VARIANT}; color: {MeshTheme.TEXT};
+                    border: 1px solid {MeshTheme.BORDER}; border-radius: 8px;
+                    padding: 6px 14px; font-size: 12px; }}
+                QPushButton:hover {{ background-color: {MeshTheme.SURFACE_LIGHT}; }}
+            """)
+
+        browse_file_btn.clicked.connect(self._browse_file)
         browse_folder_btn.clicked.connect(self._browse_folder)
 
         file_layout.addWidget(self.file_path_input)
         file_layout.addWidget(browse_file_btn)
         file_layout.addWidget(browse_folder_btn)
-        layout.addLayout(file_layout)
+        send_layout.addLayout(file_layout)
 
         dest_layout = QHBoxLayout()
         dest_label = QLabel("Destination Hash:")
+        dest_label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; background: transparent;")
         self.dest_input = QLineEdit()
         self.dest_input.setPlaceholderText("Paste the recipient's full identity hash here")
-        dest_layout.addWidget(dest_label, 0)
+        self.dest_input.setFixedHeight(38)
+        dest_layout.addWidget(dest_label)
         dest_layout.addWidget(self.dest_input, 1)
-        layout.addLayout(dest_layout)
+        send_layout.addLayout(dest_layout)
+
+        layout.addWidget(send_section)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setMinimumHeight(20)
+        self.progress_bar.setFixedHeight(8)
         layout.addWidget(self.progress_bar)
 
         self.status_label = QLabel("")
+        self.status_label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
         layout.addWidget(self.status_label)
 
-        send_btn = QPushButton("📤 Send over Mesh")
-        send_btn.setMinimumHeight(44)
-        send_btn.setStyleSheet("font-size: 15px; font-weight: bold;")
+        send_btn = QPushButton("Send over Mesh")
+        send_btn.setFixedHeight(44)
+        send_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ACCENT}; color: white; border: none;
+                border-radius: 10px; font-size: 15px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+            QPushButton:disabled {{ background-color: {MeshTheme.SURFACE_LIGHT}; color: {MeshTheme.TEXT_DIM}; }}
+        """)
         send_btn.clicked.connect(self._send_file)
         layout.addWidget(send_btn)
 
-        layout.addWidget(QLabel("Transfer History"))
+        history_label = QLabel("Transfer History")
+        history_label.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MeshTheme.TEXT}; background: transparent; margin-top: 8px;")
+        layout.addWidget(history_label)
+
         self.transfers_table = QTableWidget()
         self.transfers_table.setColumnCount(4)
         self.transfers_table.setHorizontalHeaderLabels(["Name", "To", "Progress", "Status"])
         self.transfers_table.setMaximumHeight(180)
         self.transfers_table.setAlternatingRowColors(True)
+        self.transfers_table.setStyleSheet(f"""
+            QTableWidget {{ background: transparent; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; }}
+            QTableWidget::item {{ color: {MeshTheme.TEXT}; padding: 4px 8px; }}
+            QTableWidget::item:selected {{ background: {MeshTheme.ACCENT}; color: white; }}
+            QHeaderView::section {{ background: {MeshTheme.SURFACE}; color: {MeshTheme.TEXT_MUTED};
+                border: none; border-bottom: 1px solid {MeshTheme.BORDER}; padding: 6px 8px; font-weight: 600; }}
+        """)
         layout.addWidget(self.transfers_table)
 
         layout.addStretch()
@@ -145,7 +200,7 @@ class FileManagerWidget(QWidget):
     def _show_full_identity(self):
         full = self.rns_node.get_identity_hash()
         expected = self.rns_node.hash_length
-        QMessageBox.information(self, "Your Identity Hash ({expected} chars)", full)
+        QMessageBox.information(self, f"Your Identity Hash ({expected} chars)", full)
 
     def _browse_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select file to send")
@@ -183,23 +238,17 @@ class FileManagerWidget(QWidget):
         display_name = path_obj.name
 
         if is_folder:
-            # Create zip with clean original name (no random suffix)
             try:
                 zip_name = path_obj.name + ".zip"
-                # Create in temp dir with clean name
                 temp_dir = Path(tempfile.gettempdir())
                 clean_zip_path = temp_dir / zip_name
-
-                # Remove old one if exists
                 if clean_zip_path.exists():
                     clean_zip_path.unlink()
-
                 with zipfile.ZipFile(clean_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for file in path_obj.rglob("*"):
                         if file.is_file():
                             arcname = file.relative_to(path_obj)
                             zipf.write(file, arcname)
-
                 send_path = str(clean_zip_path)
                 display_name = zip_name
             except Exception as e:
@@ -232,7 +281,7 @@ class FileManagerWidget(QWidget):
             self.transfers_table.setItem(row, 2, QTableWidgetItem(f"{percentage}%"))
 
     def _on_complete(self, file_path, row, was_folder=False, original_name=""):
-        self.status_label.setText("✓ Done!")
+        self.status_label.setText("Done!")
         self.progress_bar.setValue(100)
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Completed"))
@@ -244,7 +293,7 @@ class FileManagerWidget(QWidget):
         QMessageBox.information(self, "Success", msg)
 
     def _on_failed(self, error, file_path, row):
-        self.status_label.setText(f"✗ Failed")
+        self.status_label.setText("Failed")
         if row < self.transfers_table.rowCount():
             self.transfers_table.setItem(row, 3, QTableWidgetItem("Failed"))
         QMessageBox.critical(self, "Error", str(error))

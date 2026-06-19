@@ -9,8 +9,8 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 import sys
 import os
-import shutil
 import configparser
+from src.config.theme import MeshTheme
 
 
 class SettingsWidget(QWidget):
@@ -26,15 +26,25 @@ class SettingsWidget(QWidget):
         layout.setSpacing(16)
 
         title = QLabel("Settings")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
         layout.addWidget(title)
+
+        def group_style():
+            return f"""
+                QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                    border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                    padding: 16px; }}
+                QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                    padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+            """
 
         # === Identity Section ===
         id_group = QGroupBox("Your Identity")
+        id_group.setStyleSheet(group_style())
         id_layout = QVBoxLayout()
 
         self.identity_label = QLabel()
-        self.identity_label.setStyleSheet("font-family: monospace; background: #2a2a2a; padding: 10px; border-radius: 6px; font-size: 12px;")
+        self.identity_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; background: {MeshTheme.SURFACE_VARIANT}; padding: 10px; border-radius: 8px; font-size: 12px; color: {MeshTheme.TEXT};")
         self._update_identity_display()
         id_layout.addWidget(self.identity_label)
 
@@ -43,7 +53,7 @@ class SettingsWidget(QWidget):
         id_layout.addWidget(announce_btn)
 
         note = QLabel("Announcing makes you visible to other nodes on the Reticulum network.")
-        note.setStyleSheet("color: #888; font-size: 11px;")
+        note.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 11px; background: transparent;")
         id_layout.addWidget(note)
 
         id_group.setLayout(id_layout)
@@ -51,6 +61,7 @@ class SettingsWidget(QWidget):
 
         # === Downloads ===
         dl_group = QGroupBox("File Downloads")
+        dl_group.setStyleSheet(group_style())
         dl_layout = QVBoxLayout()
 
         self.download_path = QLineEdit()
@@ -61,7 +72,9 @@ class SettingsWidget(QWidget):
         browse_btn = QPushButton("Change Download Folder...")
         browse_btn.clicked.connect(self._change_download_folder)
 
-        dl_layout.addWidget(QLabel("Received files & extracted folders are saved to:"))
+        label = QLabel("Received files & extracted folders are saved to:")
+        label.setStyleSheet(f"color: {MeshTheme.TEXT}; background: transparent;")
+        dl_layout.addWidget(label)
         dl_layout.addWidget(self.download_path)
         dl_layout.addWidget(browse_btn)
         dl_group.setLayout(dl_layout)
@@ -69,18 +82,21 @@ class SettingsWidget(QWidget):
 
         # === Interfaces ===
         iface_group = QGroupBox("Reticulum Interfaces")
+        iface_group.setStyleSheet(group_style())
         iface_layout = QVBoxLayout()
 
         self.config_path_label = QLabel(f"Config: {Path.home() / '.reticulum' / 'config'}")
-        self.config_path_label.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.config_path_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {MeshTheme.TEXT_DIM}; background: transparent;")
         iface_layout.addWidget(self.config_path_label)
 
         self.auto_interface_cb = QCheckBox("AutoInterface enabled")
+        self.auto_interface_cb.setStyleSheet(f"color: {MeshTheme.TEXT}; background: transparent;")
         self.auto_interface_cb.setChecked(True)
         iface_layout.addWidget(self.auto_interface_cb)
 
         tcp_layout = QHBoxLayout()
         self.tcp_server_cb = QCheckBox("TCPServer on port:")
+        self.tcp_server_cb.setStyleSheet(f"color: {MeshTheme.TEXT}; background: transparent;")
         self.tcp_port = QLineEdit("4242")
         self.tcp_port.setMaximumWidth(80)
         tcp_layout.addWidget(self.tcp_server_cb)
@@ -93,7 +109,11 @@ class SettingsWidget(QWidget):
         iface_layout.addWidget(save_iface_btn)
 
         restart_btn = QPushButton("Restart Application Now")
-        restart_btn.setStyleSheet("background-color: #d35400; color: white; font-weight: bold;")
+        restart_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.WARNING}; color: white; border: none;
+                border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: #f97316; }}
+        """)
         restart_btn.clicked.connect(self._restart_application)
         iface_layout.addWidget(restart_btn)
 

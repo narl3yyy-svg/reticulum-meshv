@@ -1,6 +1,8 @@
-"""Application entry point with full feature wiring."""
+"""RMESHV – Reticulum Mesh application entry point."""
 
+import json
 import sys
+import threading
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -17,10 +19,10 @@ from src.ui.main_window import MainWindow
 class Application:
     def __init__(self):
         self.rns_config_dir = Path.home() / ".reticulum"
-        self.app_config_dir = Path.home() / ".config" / "reticulum-meshv"
+        self.app_config_dir = Path.home() / ".config" / "rmeshv"
         self.app_config_dir.mkdir(parents=True, exist_ok=True)
 
-        self.downloads_dir = Path.home() / "Downloads" / "ReticulumMesh"
+        self.downloads_dir = Path.home() / "Downloads" / "RMESHV"
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
         self.rns_node = None
@@ -32,7 +34,33 @@ class Application:
         self.telephony_manager = None
         self.main_window = None
 
+        self._config_path = self.app_config_dir / "config.json"
+        self._config = self._load_config()
+
         self._init_backend()
+
+    def _load_config(self) -> dict:
+        if self._config_path.exists():
+            try:
+                return json.loads(self._config_path.read_text())
+            except:
+                pass
+        return {"display_name": ""}
+
+    def _save_config(self):
+        self._config_path.write_text(json.dumps(self._config, indent=2))
+
+    def get_display_name(self) -> str:
+        name = self._config.get("display_name", "")
+        if name:
+            return name
+        if self.rns_node:
+            return self.rns_node.get_short_identity_hash()
+        return "RMESHV User"
+
+    def set_display_name(self, name: str):
+        self._config["display_name"] = name
+        self._save_config()
 
     def _init_backend(self):
         try:
@@ -69,6 +97,8 @@ class Application:
 
                 self.telephony_manager = TelephonyManager(identity)
 
+                self._start_auto_announce()
+
             if self.rns_node:
                 self.rns_node.set_text_message_callback(self._on_text_message)
 
@@ -76,6 +106,26 @@ class Application:
             print(f"Backend initialization error: {e}")
             import traceback
             traceback.print_exc()
+
+    def _start_auto_announce(self):
+        def loop():
+            while True:
+                import time
+                time.sleep(300)
+                display_name = self.get_display_name()
+                if self.lxmf_messenger:
+                    self.lxmf_messenger.announce(display_name)
+                if self.rns_node:
+                    self.rns_node.announce_myself(display_name)
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
+
+    def announce_now(self):
+        display_name = self.get_display_name()
+        if self.lxmf_messenger:
+            self.lxmf_messenger.announce(display_name)
+        elif self.rns_node:
+            self.rns_node.announce_myself(display_name)
 
     def _on_text_message(self, sender_hash: str, text: str):
         if self.main_window and hasattr(self.main_window, "messages_widget"):
@@ -109,6 +159,8 @@ class Application:
 
         if self.lxmf_messenger:
             self.lxmf_messenger.set_message_callback(self._on_lxmf_message)
+
+        self.announce_now()
 
         sys.exit(app.exec())
 

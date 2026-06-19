@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QFileDialog, QApplication
 )
 from PyQt6.QtCore import Qt
+from src.config.theme import MeshTheme
 
 
 class IdentitiesWidget(QWidget):
@@ -20,19 +21,31 @@ class IdentitiesWidget(QWidget):
         layout.setSpacing(12)
 
         title = QLabel("Identity Manager")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
         layout.addWidget(title)
 
         current_group = QGroupBox("Current Identity")
+        current_group.setStyleSheet(f"""
+            QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px; font-weight: 400;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                padding: 16px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+        """)
         current_layout = QVBoxLayout()
 
         current_hash = self.rns_node.get_identity_hash() if self.rns_node else "N/A"
         self.current_label = QLabel(current_hash)
-        self.current_label.setStyleSheet("font-family: monospace; background: #2a2a2a; padding: 10px; border-radius: 6px;")
+        self.current_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; background: {MeshTheme.SURFACE_VARIANT}; padding: 10px; border-radius: 8px; color: {MeshTheme.TEXT}; font-size: 11px;")
         self.current_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         current_layout.addWidget(self.current_label)
 
         copy_btn = QPushButton("Copy Hash")
+        copy_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ACCENT}; color: white; border: none;
+                border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT_DARK}; }}
+        """)
         copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(current_hash))
         current_layout.addWidget(copy_btn)
 
@@ -40,9 +53,22 @@ class IdentitiesWidget(QWidget):
         layout.addWidget(current_group)
 
         manage_group = QGroupBox("Saved Identities")
+        manage_group.setStyleSheet(f"""
+            QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                padding: 16px; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+                padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
+        """)
         manage_layout = QVBoxLayout()
 
         self.identity_list = QListWidget()
+        self.identity_list.setStyleSheet(f"""
+            QListWidget {{ background: transparent; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; }}
+            QListWidget::item {{ color: {MeshTheme.TEXT}; padding: 6px 8px; border-radius: 4px; }}
+            QListWidget::item:hover {{ background: {MeshTheme.SURFACE_VARIANT}; }}
+            QListWidget::item:selected {{ background: {MeshTheme.ACCENT}; color: white; }}
+        """)
         self.identity_list.itemDoubleClicked.connect(self._switch_identity)
         manage_layout.addWidget(self.identity_list)
 
@@ -60,7 +86,11 @@ class IdentitiesWidget(QWidget):
         btn_row.addWidget(switch_btn)
 
         delete_btn = QPushButton("Delete Selected")
-        delete_btn.setStyleSheet("background-color: #d32f2f;")
+        delete_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ERROR}; color: white; border: none;
+                border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: #ef4444; }}
+        """)
         delete_btn.clicked.connect(self._delete_identity)
         btn_row.addWidget(delete_btn)
 
@@ -69,7 +99,7 @@ class IdentitiesWidget(QWidget):
         layout.addWidget(manage_group)
 
         note = QLabel("Note: Switching identities requires app restart to take full effect.")
-        note.setStyleSheet("color: #888; font-size: 11px;")
+        note.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 11px; background: transparent;")
         layout.addWidget(note)
 
         layout.addStretch()
