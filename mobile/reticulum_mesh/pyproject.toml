@@ -16,4 +16,6 @@ icon = "src/reticulum_mesh/resources/icon"
 sources = ["src/reticulum_mesh"]
 requires = [
     "toga",
+    "toga-android",
+    "toga-core",
 ]
