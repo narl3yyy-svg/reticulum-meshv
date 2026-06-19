@@ -383,6 +383,8 @@ class MessagesWidget(QWidget):
         conv = self.conversations.get(self.current_conv_id)
         if conv:
             conv.update_message(text, ts)
+        if self.backend and hasattr(self.backend, 'send_message'):
+            self.backend.send_message(self.current_conv_id, text)
 
     def _filter_conversations(self, text):
         for conv_id, item in self.conversations.items():

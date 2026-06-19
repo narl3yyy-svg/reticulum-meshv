@@ -2,6 +2,7 @@
 
 import json
 import sys
+import time
 import threading
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -13,6 +14,7 @@ from src.backend.identity_manager import IdentityManager
 from src.backend.contact_manager import ContactManager
 from src.backend.network_monitor import NetworkMonitor
 from src.backend.telephony_manager import TelephonyManager
+from src.backend.tcp_bridge import TCPBridgeServer
 from src.ui.main_window import MainWindow
 
 
@@ -32,6 +34,7 @@ class Application:
         self.contact_manager = None
         self.network_monitor = None
         self.telephony_manager = None
+        self.tcp_bridge = None
         self.main_window = None
 
         self._config_path = self.app_config_dir / "config.json"
@@ -102,6 +105,15 @@ class Application:
             if self.rns_node:
                 self.rns_node.set_text_message_callback(self._on_text_message)
 
+            self.tcp_bridge = TCPBridgeServer(
+                lxmf_messenger=self.lxmf_messenger,
+                rns_node=self.rns_node,
+                host="0.0.0.0",
+                port=4742
+            )
+            self.tcp_bridge.message_callback = self._on_bridge_message
+            self.tcp_bridge.start()
+
         except Exception as e:
             print(f"Backend initialization error: {e}")
             import traceback
@@ -110,7 +122,6 @@ class Application:
     def _start_auto_announce(self):
         def loop():
             while True:
-                import time
                 time.sleep(300)
                 display_name = self.get_display_name()
                 if self.lxmf_messenger:
@@ -141,6 +152,24 @@ class Application:
                 self.main_window.messages_widget.receive_lxmf_message(sender_hash, content, title, timestamp)
             except Exception as e:
                 print(f"Error delivering LXMF message to UI: {e}")
+
+    def _on_bridge_message(self, sender_hash: str, text: str, timestamp: float):
+        if self.main_window and hasattr(self.main_window, "messages_widget"):
+            try:
+                self.main_window.messages_widget.receive_lxmf_message(sender_hash, text, "", timestamp)
+            except Exception as e:
+                print(f"Error delivering bridge message to UI: {e}")
+
+    def send_message(self, dest_hash: str, text: str):
+        if self.tcp_bridge:
+            sent = self.tcp_bridge.send_to_client(dest_hash, "message",
+                from_hash=self.rns_node.get_identity_hash() if self.rns_node else "",
+                text=text, timestamp=time.time())
+            if sent:
+                return True
+        if self.lxmf_messenger:
+            return self.lxmf_messenger.send_message(dest_hash, text)
+        return False
 
     def run(self):
         app = QApplication(sys.argv)

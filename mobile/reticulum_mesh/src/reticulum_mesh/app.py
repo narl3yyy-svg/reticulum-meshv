@@ -1,24 +1,13 @@
-"""RMESHV Mobile App - Local-first, optional RNS."""
-
+"""RMESHV Mobile - TCP bridge client for desktop relay."""
 import os
 import sys
 import time
+import json
+import socket
 import threading
-import hashlib
 from pathlib import Path
 
-_RNS = None
-_LXMF = None
-try:
-    import RNS as _RNS
-except ImportError:
-    pass
-try:
-    import LXMF as _LXMF
-except ImportError:
-    pass
-
-from toga import App, MainWindow, Box, Label, Button, ScrollContainer, TextInput
+from toga import App, MainWindow, Box, Label, Button, ScrollContainer, TextInput, Selection
 try:
     from toga.style import Pack
     from toga.constants import COLUMN, ROW
@@ -41,120 +30,120 @@ def get_timestamp():
     return datetime.now().strftime("%H:%M")
 
 
-class MobileNode:
-    def __init__(self):
-        self.reticulum = None
-        self.identity = None
-        self.identity_hash = ""
-        self.discovered_peers = {}
-        self.rns_enabled = False
-        self._init_local()
+LOCAL_STORE = Path.home() / ".config" / "rmeshv"
 
-    def _init_local(self):
-        path = Path.home() / ".config" / "rmeshv" / "identity.txt"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
+
+class BridgeClient:
+    def __init__(self):
+        self.sock = None
+        self.rx_thread = None
+        self.connected = False
+        self.server_identity = ""
+        self.local_identity = self._load_identity()
+        self.recv_queue = []
+        self.lock = threading.Lock()
+        self._stop = threading.Event()
+        self.pending_ping = None
+
+    def _load_identity(self):
+        LOCAL_STORE.mkdir(parents=True, exist_ok=True)
+        p = LOCAL_STORE / "identity.txt"
+        if p.exists():
             try:
-                self.identity_hash = path.read_text().strip()
-                if len(self.identity_hash) == 64:
-                    return
+                v = p.read_text().strip()
+                if len(v) == 64:
+                    return v
             except:
                 pass
-        self.identity_hash = os.urandom(32).hex()
+        v = os.urandom(32).hex()
         try:
-            path.write_text(self.identity_hash)
+            p.write_text(v)
         except:
             pass
+        return v
 
-    def enable_rns(self):
-        if _RNS is None:
-            return False
-        if self.rns_enabled:
-            return True
+    def connect(self, host, port):
+        self.disconnect()
         try:
-            config_dir = str(Path.home() / ".reticulum")
-            self.reticulum = _RNS.Reticulum(configdir=config_dir)
-            self.identity = self._load_rns_identity()
-            self.identity_hash = self.identity.hash.hex() if self.identity else self.identity_hash
-            try:
-                _RNS.Transport.register_announce_handler(self._on_announce_rns)
-            except:
-                pass
-            self.rns_enabled = True
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(5)
+            self.sock.connect((host, port))
+            self.sock.settimeout(None)
+            self.connected = True
+            self._stop.clear()
+            self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
+            self.rx_thread.start()
+            self._send({"type": "hello", "identity": self.local_identity})
             return True
         except Exception as e:
-            log(f"RNS enable failed: {e}")
-            import traceback
-            traceback.print_exc()
+            log(f"Bridge connect failed: {e}")
+            self.connected = False
             return False
 
-    def _load_rns_identity(self):
-        path = Path.home() / ".config" / "rmeshv" / "identity.key"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
+    def disconnect(self):
+        self._stop.set()
+        if self.sock:
             try:
-                identity = _RNS.Identity.from_file(str(path))
-                if identity and identity.hash:
-                    return identity
+                self.sock.close()
             except:
                 pass
-            try:
-                path.unlink(missing_ok=True)
-            except:
-                pass
-        identity = _RNS.Identity()
-        identity.to_file(str(path))
-        return identity
+            self.sock = None
+        self.connected = False
+        self.server_identity = ""
 
-    def _on_announce_rns(self, destination_hash, announced_identity, app_data):
-        if not announced_identity:
+    def _send(self, data):
+        if not self.sock:
             return
-        hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else destination_hash
-        self.discovered_peers[hash_hex] = {
-            "name": announced_identity.hash.hex()[:12] if announced_identity else hash_hex[:12],
-            "last_seen": time.time(),
-        }
-
-    def get_identity_hash(self):
-        return self.identity_hash
-
-    def get_discovered_peers(self):
-        return list(self.discovered_peers.items())
-
-    def announce_myself(self):
-        if self.rns_enabled and self.identity:
-            try:
-                dest = _RNS.Destination(
-                    self.identity, _RNS.Destination.IN, _RNS.Destination.SINGLE,
-                    "reticulum-meshv", "announce"
-                )
-                dest.announce()
-                return True
-            except Exception as e:
-                log(f"announce failed: {e}")
-                return False
-        return True
-
-    def send_text(self, destination_hash, text):
-        if not self.rns_enabled or not self.identity:
-            return False
         try:
-            dest_bytes = bytes.fromhex(destination_hash)
-            remote_id = _RNS.Identity.recall(dest_bytes)
-            if not remote_id:
-                remote_id = _RNS.Identity()
-                remote_id.hash = dest_bytes
-            if _LXMF:
-                router = _LXMF.LXMRouter(identity=self.identity)
-                dest = _RNS.Destination(remote_id, _RNS.Destination.OUT, _RNS.Destination.SINGLE, "lxmf", "delivery")
-                msg = _LXMF.LXMessage(dest, self.identity, content=text.encode("utf-8"))
-                router.handle_outbound(msg)
-            else:
-                dest = _RNS.Destination(remote_id, _RNS.Destination.OUT, _RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
-                _RNS.Resource(text.encode("utf-8"), dest)
-            return True
+            blob = json.dumps(data) + "\n"
+            self.sock.sendall(blob.encode("utf-8"))
         except:
-            return False
+            self.disconnect()
+
+    def _rx_loop(self):
+        buf = b""
+        while not self._stop.is_set():
+            try:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        msg = json.loads(line.decode("utf-8"))
+                        self._handle_msg(msg)
+                    except:
+                        pass
+            except:
+                if not self._stop.is_set():
+                    time.sleep(0.1)
+        self.connected = False
+        self.server_identity = ""
+
+    def _handle_msg(self, msg):
+        t = msg.get("type", "")
+        if t == "welcome":
+            self.server_identity = msg.get("server_identity", "")
+        with self.lock:
+            self.recv_queue.append(msg)
+
+    def poll_messages(self):
+        with self.lock:
+            items = self.recv_queue.copy()
+            self.recv_queue.clear()
+        return items
+
+    def send_text(self, dest, text):
+        self._send({"type": "message", "to": dest, "text": text, "timestamp": time.time()})
+
+    def announce(self):
+        self._send({"type": "announce"})
+
+    def send_peers_request(self):
+        self._send({"type": "get_peers"})
 
 
 def make_label(text, size=11, margin_b=6):
@@ -165,13 +154,14 @@ def make_label(text, size=11, margin_b=6):
 
 
 class MessagesScreen(Box):
-    def __init__(self, node):
+    def __init__(self, app_ref, node):
         super().__init__()
         self.style.direction = COLUMN
         self.style.flex = 1
         self.style.margin = 8
+        self.app_ref = app_ref
         self.node = node
-        self.current_dest = ""
+        self.current_dest = node.server_identity if node else ""
 
         self.add(make_label("Messages", size=20, margin_b=6))
 
@@ -181,7 +171,7 @@ class MessagesScreen(Box):
         to_lbl = Label("To:")
         to_lbl.style.margin_right = 6
         dest_row.add(to_lbl)
-        self.dest_input = TextInput(placeholder="64-char hash")
+        self.dest_input = TextInput(placeholder="64-char hash (blank = desktop)")
         self.dest_input.style.flex = 1
         start_btn = Button("Chat", on_press=self.start_chat)
         start_btn.style.width = 70
@@ -189,7 +179,7 @@ class MessagesScreen(Box):
         dest_row.add(start_btn)
         self.add(dest_row)
 
-        self.status_label = make_label("Enter a destination hash.")
+        self.status_label = make_label("Enter destination hash or leave blank for desktop.")
         self.add(self.status_label)
 
         self.scroll = ScrollContainer()
@@ -211,14 +201,51 @@ class MessagesScreen(Box):
         input_row.add(send_btn)
         self.add(input_row)
 
-        self.add_bubble("Announce yourself first for discoverability.", is_sent=False)
+        self._poll_timer = None
+        self._start_poll()
+
+    def _start_poll(self):
+        self._poll()
+
+    def _poll(self):
+        try:
+            if self.node and self.node.connected:
+                msgs = self.node.poll_messages()
+                for msg in msgs:
+                    self._handle_incoming(msg)
+        except:
+            pass
+        if self.app_ref and self.app_ref._running:
+            from toga import App
+            try:
+                App.app.add_background_task(lambda a: None)
+            except:
+                pass
+        self._poll_timer = threading.Timer(0.5, self._poll)
+        self._poll_timer.daemon = True
+        self._poll_timer.start()
+
+    def _handle_incoming(self, msg):
+        t = msg.get("type", "")
+        if t == "message":
+            sender = msg.get("from", "unknown")[:16]
+            text = msg.get("text", "")
+            ts = msg.get("timestamp", time.time())
+            self.add_bubble(f"[{sender}] {text}", is_sent=False)
+        elif t == "peers":
+            peers = msg.get("peers", [])
+            self.add_bubble(f"Peers on bridge: {len(peers)}", is_sent=False)
+        elif t == "welcome":
+            sid = msg.get("server_identity", "")[:16]
+            self.add_bubble(f"Connected to bridge [{sid}]", is_sent=False)
 
     def start_chat(self, widget):
         dest = "".join(c for c in self.dest_input.value.strip() if c in "0123456789abcdefABCDEF").lower()
-        if len(dest) == 64:
+        if len(dest) == 64 or not dest:
             self.current_dest = dest
-            self.add_bubble(f"Chat started with {dest[:12]}...", is_sent=False)
-            self.status_label.text = "Chat active."
+            label = "desktop" if not dest else f"{dest[:12]}..."
+            self.add_bubble(f"Chat started with {label}", is_sent=False)
+            self.status_label.text = f"Target: {label}"
         else:
             self.add_bubble(f"Hash must be 64 hex chars, got {len(dest)}.", is_sent=False)
 
@@ -235,17 +262,16 @@ class MessagesScreen(Box):
         self.chat_box.add(box)
 
     def send_message(self, widget):
-        if not self.current_dest:
-            self.add_bubble("Start a chat first.", is_sent=False)
-            return
         text = self.input.value.strip()
         if not text:
             return
-        self.add_bubble(text, is_sent=True)
+        target_label = "desktop" if not self.current_dest else f"{self.current_dest[:12]}..."
+        self.add_bubble(f"To {target_label}: {text}", is_sent=True)
         self.input.value = ""
-        sent = self.node.send_text(self.current_dest, text) if self.node else False
-        if not sent:
-            self.add_bubble("Send failed", is_sent=False)
+        if self.node and self.node.connected:
+            self.node.send_text(self.current_dest, text)
+        else:
+            self.add_bubble("Not connected to bridge.", is_sent=False)
 
 
 class ContactsScreen(Box):
@@ -259,23 +285,25 @@ class ContactsScreen(Box):
         self.add(announce_btn)
         self.status = Label("")
         self.add(self.status)
-        self.add(make_label("Discovered Peers:", size=14, margin_b=6))
-        self.peer_label = make_label("(refresh to see peers)")
+        self.add(make_label("Connected Peers:", size=14, margin_b=6))
+        self.peer_label = make_label("(connect to bridge to see peers)")
         self.add(self.peer_label)
         refresh_btn = Button("Refresh", on_press=self.refresh_peers)
         self.add(refresh_btn)
-        self.refresh_peers(None)
 
     def announce(self, widget):
-        if self.node:
-            self.status.text = "Announced!" if self.node.announce_myself() else "Failed"
+        if self.node and self.node.connected:
+            self.node.announce()
+            self.status.text = "Announced via bridge!"
+        else:
+            self.status.text = "Not connected"
 
     def refresh_peers(self, widget):
-        if not self.node:
-            self.peer_label.text = "No node"
-            return
-        peers = self.node.get_discovered_peers()
-        self.peer_label.text = "\n".join([f"{h[:12]}..." for h, _ in peers[:5]]) if peers else "No peers discovered"
+        if self.node and self.node.connected:
+            self.node.send_peers_request()
+            self.peer_label.text = "Fetching peers..."
+        else:
+            self.peer_label.text = "Not connected to bridge"
 
 
 class NetworkScreen(Box):
@@ -285,21 +313,16 @@ class NetworkScreen(Box):
         self.style.margin = 10
         self.node = node
         self.add(make_label("Network", size=20, margin_b=8))
-        h = self.node.get_identity_hash() if self.node else ""
-        label = f"Identity:\n{h[:32]}..." if h else "Identity:\nN/A"
-        self.add(make_label(label, size=11, margin_b=12))
-        refresh_btn = Button("Refresh", on_press=self.refresh_network)
-        self.add(refresh_btn)
+        self.add(make_label("Identity:" + (f"\n{node.local_identity[:32]}..." if node else "\nN/A"), size=11, margin_b=12))
         self.status = make_label("")
         self.add(self.status)
-        self.refresh_network(None)
+        refresh_btn = Button("Refresh", on_press=self.refresh_network)
+        self.add(refresh_btn)
 
     def refresh_network(self, widget):
-        if not self.node:
-            self.status.text = "No node"
-            return
-        status = "Reticulum: ON" if self.node.rns_enabled else "Reticulum: OFF"
-        self.status.text = f"{status} | Peers: {len(self.node.get_discovered_peers())}"
+        if self.node:
+            conn = "Bridge: ON" if self.node.connected else "Bridge: OFF"
+            self.status.text = conn
 
 
 class SettingsScreen(Box):
@@ -309,47 +332,79 @@ class SettingsScreen(Box):
         self.style.margin = 10
         self.node = node
         self.app_ref = app_ref
+
         self.add(make_label("Settings", size=20, margin_b=10))
+        self.add(make_label("Desktop Bridge", size=16, margin_b=6))
 
-        h = self.node.get_identity_hash() if self.node else ""
-        self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nN/A", size=11, margin_b=12))
+        row = Box()
+        row.style.direction = ROW
+        row.style.margin_bottom = 6
+        row.add(make_label("Host:", margin_b=0))
+        self.host_input = TextInput(placeholder="192.168.1.x")
+        self.host_input.style.flex = 1
+        row.add(self.host_input)
+        self.add(row)
 
-        rns_state = "ON" if (self.node and self.node.rns_enabled) else "OFF"
-        self.rns_label = make_label(f"Reticulum: {rns_state}")
-        self.add(self.rns_label)
+        row2 = Box()
+        row2.style.direction = ROW
+        row2.style.margin_bottom = 10
+        row2.add(make_label("Port:", margin_b=0))
+        self.port_input = TextInput(placeholder="4742")
+        self.port_input.style.width = 100
+        row2.add(self.port_input)
+        self.add(row2)
 
-        self.rns_btn = Button("Enable Reticulum", on_press=self.toggle_rns)
-        self.add(self.rns_btn)
+        self.connect_btn = Button("Connect", on_press=self.toggle_connect)
+        self.add(self.connect_btn)
+        self.status = make_label("")
+        self.add(self.status)
 
-        announce_btn = Button("Announce Myself", on_press=self.announce)
-        self.add(announce_btn)
-        self.announce_label = Label("")
-        self.add(self.announce_label)
-
-        self.add(make_label("Interfaces", size=16, margin_b=6))
-        self.add(Label("AutoInterface: Enabled"))
+        self.add(make_label(f"Identity: {node.local_identity[:16]}...", size=10, margin_b=12))
         self.add(make_label("RMESHV v1.0.0", size=10, margin_b=8))
 
-    def toggle_rns(self, widget):
-        if not self.node or self.node.rns_enabled:
+        try:
+            cfg = json.loads((LOCAL_STORE / "bridge.json").read_text()) if (LOCAL_STORE / "bridge.json").exists() else {}
+            if "host" in cfg:
+                self.host_input.value = cfg["host"]
+            if "port" in cfg:
+                self.port_input.value = str(cfg["port"])
+        except:
+            pass
+
+    def toggle_connect(self, widget):
+        if not self.node:
             return
-        self.rns_label.text = "Reticulum: starting…"
-        threading.Thread(target=self._enable_rns, daemon=True).start()
-
-    def _enable_rns(self):
-        ok = self.node.enable_rns()
+        if self.node.connected:
+            self.node.disconnect()
+            self.status.text = "Disconnected"
+            self.connect_btn.text = "Connect"
+            return
+        host = self.host_input.value.strip()
+        port_str = self.port_input.value.strip()
+        try:
+            port = int(port_str) if port_str else 4742
+        except:
+            self.status.text = "Invalid port"
+            return
+        if not host:
+            self.status.text = "Enter host IP"
+            return
+        self.status.text = "Connecting..."
+        LOCAL_STORE.mkdir(parents=True, exist_ok=True)
+        (LOCAL_STORE / "bridge.json").write_text(json.dumps({"host": host, "port": port}))
+        ok = self.node.connect(host, port)
         if ok:
-            self.node.rns_enabled = True
-
-    def announce(self, widget):
-        if self.node:
-            self.announce_label.text = "Announced!" if self.node.announce_myself() else "Failed"
+            self.status.text = f"Connected to bridge on {host}:{port}"
+            self.connect_btn.text = "Disconnect"
+        else:
+            self.status.text = f"Connection failed"
 
 
 class ReticulumMeshApp(App):
     def startup(self):
+        self._running = True
         self.main_window = MainWindow(title="RMESHV")
-        self.node = MobileNode()
+        self.node = BridgeClient()
 
         self.content_box = Box()
         self.content_box.style.direction = COLUMN
@@ -377,7 +432,7 @@ class ReticulumMeshApp(App):
     def show_screen(self, screen_name):
         self.screen_container.clear()
         if screen_name == "chat":
-            screen = MessagesScreen(self.node)
+            screen = MessagesScreen(self, self.node)
         elif screen_name == "contacts":
             screen = ContactsScreen(self.node)
         elif screen_name == "network":
@@ -385,8 +440,14 @@ class ReticulumMeshApp(App):
         elif screen_name == "settings":
             screen = SettingsScreen(self.node, self)
         else:
-            screen = MessagesScreen(self.node)
+            screen = MessagesScreen(self, self.node)
         self.screen_container.add(screen)
+
+    def exit(self):
+        self._running = False
+        if self.node:
+            self.node.disconnect()
+        return super().exit()
 
 
 def main():
