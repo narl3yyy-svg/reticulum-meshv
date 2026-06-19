@@ -4,7 +4,7 @@ import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication,
-    QComboBox
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt
 from pathlib import Path
@@ -18,7 +18,8 @@ class SettingsWidget(QWidget):
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
-        self.rns_node = backend.rns_node
+        self.rns_node = getattr(backend, 'rns_node', None)
+        self.serial_interfaces = []
         self.init_ui()
 
     def init_ui(self):
@@ -26,9 +27,14 @@ class SettingsWidget(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
+        scroll = QWidget()
+        scroll_layout = QVBoxLayout(scroll)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(16)
+
         title = QLabel("Settings")
         title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
-        layout.addWidget(title)
+        scroll_layout.addWidget(title)
 
         def group_style():
             return f"""
@@ -58,7 +64,7 @@ class SettingsWidget(QWidget):
         id_layout.addWidget(note)
 
         id_group.setLayout(id_layout)
-        layout.addWidget(id_group)
+        scroll_layout.addWidget(id_group)
 
         # === Downloads ===
         dl_group = QGroupBox("File Downloads")
@@ -79,10 +85,10 @@ class SettingsWidget(QWidget):
         dl_layout.addWidget(self.download_path)
         dl_layout.addWidget(browse_btn)
         dl_group.setLayout(dl_layout)
-        layout.addWidget(dl_group)
+        scroll_layout.addWidget(dl_group)
 
-        # === Interfaces ===
-        iface_group = QGroupBox("Reticulum Interfaces")
+        # === Network Interfaces ===
+        iface_group = QGroupBox("Network Interfaces")
         iface_group.setStyleSheet(group_style())
         iface_layout = QVBoxLayout()
 
@@ -105,21 +111,85 @@ class SettingsWidget(QWidget):
         tcp_layout.addStretch()
         iface_layout.addLayout(tcp_layout)
 
-        save_iface_btn = QPushButton("Save Interface Settings")
+        save_iface_btn = QPushButton("Save Network Settings")
         save_iface_btn.clicked.connect(self._save_interface_settings)
         iface_layout.addWidget(save_iface_btn)
 
-        restart_btn = QPushButton("Restart Application Now")
-        restart_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: {MeshTheme.WARNING}; color: white; border: none;
-                border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; }}
-            QPushButton:hover {{ background-color: #f97316; }}
-        """)
-        restart_btn.clicked.connect(self._restart_application)
-        iface_layout.addWidget(restart_btn)
-
         iface_group.setLayout(iface_layout)
-        layout.addWidget(iface_group)
+        scroll_layout.addWidget(iface_group)
+
+        # === Serial Interfaces ===
+        serial_group = QGroupBox("Serial / Radio Interfaces")
+        serial_group.setStyleSheet(group_style())
+        serial_layout = QVBoxLayout()
+
+        serial_desc = QLabel(
+            "Configure serial interfaces for LoRa radios, TNCs, and other serial devices.\n"
+            "Supports SerialInterface (direct) and KISSInterface (TNC protocol)."
+        )
+        serial_desc.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 11px; background: transparent;")
+        serial_desc.setWordWrap(True)
+        serial_layout.addWidget(serial_desc)
+
+        self.serial_table = QTableWidget()
+        self.serial_table.setColumnCount(4)
+        self.serial_table.setHorizontalHeaderLabels(["Type", "Port", "Baud Rate", "Flow Control"])
+        self.serial_table.horizontalHeader().setStretchLastSection(False)
+        self.serial_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.serial_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.serial_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.serial_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.serial_table.setMaximumHeight(160)
+        self.serial_table.setAlternatingRowColors(True)
+        self.serial_table.setStyleSheet(f"""
+            QTableWidget {{ background: transparent; border: 1px solid {MeshTheme.BORDER}; border-radius: 8px; }}
+            QTableWidget::item {{ color: {MeshTheme.TEXT}; padding: 4px 8px; font-size: 12px; }}
+            QTableWidget::item:selected {{ background: {MeshTheme.ACCENT}; color: white; }}
+            QHeaderView::section {{ background: {MeshTheme.SURFACE}; color: {MeshTheme.TEXT_MUTED};
+                border: none; border-bottom: 1px solid {MeshTheme.BORDER}; padding: 4px 8px; font-weight: 600; font-size: 11px; }}
+        """)
+        serial_layout.addWidget(self.serial_table)
+
+        serial_btn_row = QHBoxLayout()
+        add_serial_btn = QPushButton("+ Add Serial Interface")
+        add_serial_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: transparent; color: {MeshTheme.ACCENT};
+                border: 1px solid {MeshTheme.ACCENT}; border-radius: 6px;
+                padding: 4px 12px; font-size: 11px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACCENT}20; }}
+        """)
+        add_serial_btn.clicked.connect(self._add_serial_interface)
+        serial_btn_row.addWidget(add_serial_btn)
+
+        add_kiss_btn = QPushButton("+ Add KISS Interface")
+        add_kiss_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: transparent; color: {MeshTheme.SUCCESS};
+                border: 1px solid {MeshTheme.SUCCESS}; border-radius: 6px;
+                padding: 4px 12px; font-size: 11px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.SUCCESS}20; }}
+        """)
+        add_kiss_btn.clicked.connect(lambda: self._add_serial_interface(kiss=True))
+        serial_btn_row.addWidget(add_kiss_btn)
+
+        remove_serial_btn = QPushButton("Remove Selected")
+        remove_serial_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: transparent; color: {MeshTheme.ERROR};
+                border: 1px solid {MeshTheme.ERROR}; border-radius: 6px;
+                padding: 4px 12px; font-size: 11px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ERROR}20; }}
+        """)
+        remove_serial_btn.clicked.connect(self._remove_serial_interface)
+        serial_btn_row.addWidget(remove_serial_btn)
+
+        serial_btn_row.addStretch()
+        serial_layout.addLayout(serial_btn_row)
+
+        save_serial_btn = QPushButton("Save Serial Settings")
+        save_serial_btn.clicked.connect(self._save_serial_interfaces)
+        serial_layout.addWidget(save_serial_btn)
+
+        serial_group.setLayout(serial_layout)
+        scroll_layout.addWidget(serial_group)
 
         # === Message Privacy ===
         msg_group = QGroupBox("Message Privacy")
@@ -163,11 +233,27 @@ class SettingsWidget(QWidget):
         msg_layout.addWidget(filter_note)
 
         msg_group.setLayout(msg_layout)
-        layout.addWidget(msg_group)
+        scroll_layout.addWidget(msg_group)
 
-        layout.addStretch()
+        restart_btn = QPushButton("Restart Application Now")
+        restart_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.WARNING}; color: white; border: none;
+                border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: #f97316; }}
+        """)
+        restart_btn.clicked.connect(self._restart_application)
+        scroll_layout.addWidget(restart_btn)
+
+        scroll_layout.addStretch()
+
+        from PyQt6.QtWidgets import QScrollArea
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setWidget(scroll)
+        layout.addWidget(sa)
 
         self._load_current_interface_settings()
+        self._load_serial_interfaces()
 
     def _update_identity_display(self):
         if self.rns_node and self.rns_node.identity:
@@ -253,6 +339,95 @@ class SettingsWidget(QWidget):
                 return p.statusBar()
             p = p.parent()
         return None
+
+    def _add_serial_interface(self, kiss=False):
+        iface_type = "KISSInterface" if kiss else "SerialInterface"
+        self.serial_interfaces.append({
+            "type": iface_type,
+            "port": "/dev/ttyUSB0",
+            "speed": "115200",
+            "flow_control": "0",
+        })
+        self._refresh_serial_table()
+
+    def _remove_serial_interface(self):
+        row = self.serial_table.currentRow()
+        if row < 0 or row >= len(self.serial_interfaces):
+            return
+        del self.serial_interfaces[row]
+        self._refresh_serial_table()
+
+    def _refresh_serial_table(self):
+        self.serial_table.setRowCount(len(self.serial_interfaces))
+        for i, sif in enumerate(self.serial_interfaces):
+            self.serial_table.setItem(i, 0, QTableWidgetItem(sif["type"]))
+            self.serial_table.setItem(i, 1, QTableWidgetItem(sif["port"]))
+            self.serial_table.setItem(i, 2, QTableWidgetItem(str(sif["speed"])))
+            self.serial_table.setItem(i, 3, QTableWidgetItem(str(sif.get("flow_control", "0"))))
+        self.serial_table.resizeColumnsToContents()
+
+    def _save_serial_interfaces(self):
+        for i in range(self.serial_table.rowCount()):
+            if i >= len(self.serial_interfaces):
+                break
+            self.serial_interfaces[i]["port"] = self.serial_table.item(i, 1).text() if self.serial_table.item(i, 1) else "/dev/ttyUSB0"
+            self.serial_interfaces[i]["speed"] = self.serial_table.item(i, 2).text() if self.serial_table.item(i, 2) else "115200"
+            self.serial_interfaces[i]["flow_control"] = self.serial_table.item(i, 3).text() if self.serial_table.item(i, 3) else "0"
+
+        config_path = Path.home() / ".reticulum" / "config"
+        parser = configparser.ConfigParser()
+        if config_path.exists():
+            parser.read(config_path)
+
+        if not parser.has_section("interfaces"):
+            parser.add_section("interfaces")
+
+        existing_serial = [s for s in parser.sections() if s.startswith("interfaces.") and any(
+            parser.get(s, "type", fallback="") == t for t in ["SerialInterface", "KISSInterface"]
+        )]
+        for s in existing_serial:
+            parser.remove_section(s)
+
+        for i, sif in enumerate(self.serial_interfaces):
+            sec = f"interfaces.Serial{i+1}_{sif['type']}"
+            parser.add_section(sec)
+            parser.set(sec, "type", sif["type"])
+            parser.set(sec, "interface_enabled", "Yes")
+            parser.set(sec, "port", sif["port"])
+            parser.set(sec, "speed", str(sif["speed"]))
+            if sif["type"] == "SerialInterface" and sif.get("flow_control", "0") != "0":
+                parser.set(sec, "flow_control", sif["flow_control"])
+
+        try:
+            with open(config_path, "w") as f:
+                parser.write(f)
+            QMessageBox.information(self, "Saved", "Serial interface settings saved. Restart to apply.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _load_serial_interfaces(self):
+        config_path = Path.home() / ".reticulum" / "config"
+        if not config_path.exists():
+            return
+        try:
+            parser = configparser.ConfigParser()
+            parser.read(config_path)
+            self.serial_interfaces = []
+            for sec in parser.sections():
+                if not sec.startswith("interfaces."):
+                    continue
+                iface_type = parser.get(sec, "type", fallback="")
+                if iface_type not in ("SerialInterface", "KISSInterface"):
+                    continue
+                self.serial_interfaces.append({
+                    "type": iface_type,
+                    "port": parser.get(sec, "port", fallback="/dev/ttyUSB0"),
+                    "speed": parser.get(sec, "speed", fallback="115200"),
+                    "flow_control": parser.get(sec, "flow_control", fallback="0"),
+                })
+            self._refresh_serial_table()
+        except:
+            pass
 
     def _restart_application(self):
         if QMessageBox.question(self, "Restart", "Restart application now?", 

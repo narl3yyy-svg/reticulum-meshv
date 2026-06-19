@@ -211,14 +211,13 @@ class Application:
                 print(f"Error delivering bridge message to UI: {e}")
 
     def send_message(self, dest_hash: str, text: str):
+        if self.lxmf_messenger:
+            if self.lxmf_messenger.send_message(dest_hash, text):
+                return True
         if self.tcp_bridge:
-            sent = self.tcp_bridge.send_to_client(dest_hash, "message",
+            return self.tcp_bridge.send_to_client(dest_hash, "message",
                 from_hash=self.rns_node.get_identity_hash() if self.rns_node else "",
                 text=text, timestamp=time.time())
-            if sent:
-                return True
-        if self.lxmf_messenger:
-            return self.lxmf_messenger.send_message(dest_hash, text)
         return False
 
     def run(self):
