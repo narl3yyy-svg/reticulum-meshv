@@ -1,4 +1,4 @@
-"""Reticulum Mesh Mobile App - Self-contained."""
+"""RMESHV Mobile App - Local-first, optional RNS."""
 
 import os
 import sys
@@ -7,17 +7,16 @@ import threading
 import hashlib
 from pathlib import Path
 
-BACKEND_AVAILABLE = False
+_RNS = None
+_LXMF = None
 try:
-    import RNS
-    BACKEND_AVAILABLE = True
+    import RNS as _RNS
 except ImportError:
-    RNS = None
-
+    pass
 try:
-    import LXMF
+    import LXMF as _LXMF
 except ImportError:
-    LXMF = None
+    pass
 
 from toga import App, MainWindow, Box, Label, Button, ScrollContainer, TextInput
 try:
@@ -32,7 +31,7 @@ def log(*args):
     msg = " ".join(str(a) for a in args)
     try:
         from android import log as android_log
-        android_log.v("ReticulumMesh", msg)
+        android_log.v("RMESHV", msg)
     except ImportError:
         print(f"[RM] {msg}")
 
@@ -42,61 +41,59 @@ def get_timestamp():
     return datetime.now().strftime("%H:%M")
 
 
-class MobileReticulumNode:
+class MobileNode:
     def __init__(self):
         self.reticulum = None
         self.identity = None
         self.identity_hash = ""
         self.discovered_peers = {}
-
-        if BACKEND_AVAILABLE:
-            self._init_rns()
-        else:
-            self._init_local()
+        self.rns_enabled = False
+        self._init_local()
 
     def _init_local(self):
-        log("Using local-only mode (RNS not available)")
-        path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity_local.txt"
+        path = Path.home() / ".config" / "rmeshv" / "identity.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             try:
                 self.identity_hash = path.read_text().strip()
                 if len(self.identity_hash) == 64:
-                    log(f"Loaded local identity: {self.identity_hash[:12]}...")
                     return
             except:
                 pass
         self.identity_hash = os.urandom(32).hex()
         try:
             path.write_text(self.identity_hash)
-            log(f"Generated local identity: {self.identity_hash[:12]}...")
         except:
             pass
 
-    def _init_rns(self):
+    def enable_rns(self):
+        if _RNS is None:
+            return False
+        if self.rns_enabled:
+            return True
         try:
             config_dir = str(Path.home() / ".reticulum")
-            self.reticulum = RNS.Reticulum(configdir=config_dir)
+            self.reticulum = _RNS.Reticulum(configdir=config_dir)
             self.identity = self._load_rns_identity()
-            self.identity_hash = self.identity.hash.hex() if self.identity else ""
-
+            self.identity_hash = self.identity.hash.hex() if self.identity else self.identity_hash
             try:
-                RNS.Transport.register_announce_handler(self._on_announce_rns)
+                _RNS.Transport.register_announce_handler(self._on_announce_rns)
             except:
                 pass
+            self.rns_enabled = True
+            return True
         except Exception as e:
+            log(f"RNS enable failed: {e}")
             import traceback
-            log(f"RNS init error: {e}")
             traceback.print_exc()
-            log("Falling back to local-only mode")
-            self._init_local()
+            return False
 
     def _load_rns_identity(self):
-        path = Path.home() / ".config" / "reticulum-mesh-mobile" / "identity.key"
+        path = Path.home() / ".config" / "rmeshv" / "identity.key"
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             try:
-                identity = RNS.Identity.from_file(str(path))
+                identity = _RNS.Identity.from_file(str(path))
                 if identity and identity.hash:
                     return identity
             except:
@@ -105,7 +102,7 @@ class MobileReticulumNode:
                 path.unlink(missing_ok=True)
             except:
                 pass
-        identity = RNS.Identity()
+        identity = _RNS.Identity()
         identity.to_file(str(path))
         return identity
 
@@ -125,54 +122,39 @@ class MobileReticulumNode:
         return list(self.discovered_peers.items())
 
     def announce_myself(self):
-        if BACKEND_AVAILABLE and self.identity:
+        if self.rns_enabled and self.identity:
             try:
-                dest = RNS.Destination(
-                    self.identity,
-                    RNS.Destination.IN,
-                    RNS.Destination.SINGLE,
-                    "reticulum-meshv",
-                    "announce"
+                dest = _RNS.Destination(
+                    self.identity, _RNS.Destination.IN, _RNS.Destination.SINGLE,
+                    "reticulum-meshv", "announce"
                 )
                 dest.announce()
-                log("announce: OK")
                 return True
             except Exception as e:
                 log(f"announce failed: {e}")
                 return False
-        log("announce: local-only (no-op)")
         return True
 
     def send_text(self, destination_hash, text):
-        if not BACKEND_AVAILABLE or not self.identity:
-            log("send_text: RNS unavailable")
+        if not self.rns_enabled or not self.identity:
             return False
         try:
             dest_bytes = bytes.fromhex(destination_hash)
-            remote_id = RNS.Identity.recall(dest_bytes)
+            remote_id = _RNS.Identity.recall(dest_bytes)
             if not remote_id:
-                remote_id = RNS.Identity()
+                remote_id = _RNS.Identity()
                 remote_id.hash = dest_bytes
-
-            if LXMF:
-                router = LXMF.LXMRouter(identity=self.identity)
-                dest = RNS.Destination(remote_id, RNS.Destination.OUT, RNS.Destination.SINGLE, "lxmf", "delivery")
-                msg = LXMF.LXMessage(dest, self.identity, content=text.encode("utf-8"))
+            if _LXMF:
+                router = _LXMF.LXMRouter(identity=self.identity)
+                dest = _RNS.Destination(remote_id, _RNS.Destination.OUT, _RNS.Destination.SINGLE, "lxmf", "delivery")
+                msg = _LXMF.LXMessage(dest, self.identity, content=text.encode("utf-8"))
                 router.handle_outbound(msg)
-                return True
             else:
-                dest = RNS.Destination(remote_id, RNS.Destination.OUT, RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
-                RNS.Resource(text.encode("utf-8"), dest)
-                return True
+                dest = _RNS.Destination(remote_id, _RNS.Destination.OUT, _RNS.Destination.SINGLE, "reticulum-meshv", "filetransfer")
+                _RNS.Resource(text.encode("utf-8"), dest)
+            return True
         except:
             return False
-
-
-def make_container():
-    c = Box()
-    c.style.direction = COLUMN
-    c.style.flex = 1
-    return c
 
 
 def make_label(text, size=11, margin_b=6):
@@ -188,7 +170,6 @@ class MessagesScreen(Box):
         self.style.direction = COLUMN
         self.style.flex = 1
         self.style.margin = 8
-
         self.node = node
         self.current_dest = ""
 
@@ -197,17 +178,13 @@ class MessagesScreen(Box):
         dest_row = Box()
         dest_row.style.direction = ROW
         dest_row.style.margin_bottom = 6
-
         to_lbl = Label("To:")
         to_lbl.style.margin_right = 6
         dest_row.add(to_lbl)
-
         self.dest_input = TextInput(placeholder="64-char hash")
         self.dest_input.style.flex = 1
-
         start_btn = Button("Chat", on_press=self.start_chat)
         start_btn.style.width = 70
-
         dest_row.add(self.dest_input)
         dest_row.add(start_btn)
         self.add(dest_row)
@@ -217,7 +194,6 @@ class MessagesScreen(Box):
 
         self.scroll = ScrollContainer()
         self.scroll.style.flex = 1
-
         self.chat_box = Box()
         self.chat_box.style.direction = COLUMN
         self.scroll.content = self.chat_box
@@ -226,14 +202,11 @@ class MessagesScreen(Box):
         input_row = Box()
         input_row.style.direction = ROW
         input_row.style.margin_top = 8
-
         self.input = TextInput(placeholder="Type a message...")
         self.input.style.flex = 1
         self.input.style.margin_right = 8
-
         send_btn = Button("Send", on_press=self.send_message)
         send_btn.style.width = 70
-
         input_row.add(self.input)
         input_row.add(send_btn)
         self.add(input_row)
@@ -254,7 +227,6 @@ class MessagesScreen(Box):
         box.style.margin = 5
         box.style.margin_left = 65 if is_sent else 8
         box.style.margin_right = 8 if is_sent else 65
-
         lbl = Label(text)
         lbl.style.margin = 8
         lbl.style.margin_bottom = 2
@@ -282,22 +254,16 @@ class ContactsScreen(Box):
         self.style.direction = COLUMN
         self.style.margin = 10
         self.node = node
-
         self.add(make_label("Contacts", size=20, margin_b=8))
-
         announce_btn = Button("Announce Myself", on_press=self.announce)
         self.add(announce_btn)
-
         self.status = Label("")
         self.add(self.status)
-
         self.add(make_label("Discovered Peers:", size=14, margin_b=6))
         self.peer_label = make_label("(refresh to see peers)")
         self.add(self.peer_label)
-
         refresh_btn = Button("Refresh", on_press=self.refresh_peers)
         self.add(refresh_btn)
-
         self.refresh_peers(None)
 
     def announce(self, widget):
@@ -306,7 +272,7 @@ class ContactsScreen(Box):
 
     def refresh_peers(self, widget):
         if not self.node:
-            self.peer_label.text = "Reticulum not available"
+            self.peer_label.text = "No node"
             return
         peers = self.node.get_discovered_peers()
         self.peer_label.text = "\n".join([f"{h[:12]}..." for h, _ in peers[:5]]) if peers else "No peers discovered"
@@ -318,37 +284,43 @@ class NetworkScreen(Box):
         self.style.direction = COLUMN
         self.style.margin = 10
         self.node = node
-
         self.add(make_label("Network", size=20, margin_b=8))
-
         h = self.node.get_identity_hash() if self.node else ""
-        label = f"Identity:\n{h[:32]}..." if h else "Identity:\nRNS not available"
+        label = f"Identity:\n{h[:32]}..." if h else "Identity:\nN/A"
         self.add(make_label(label, size=11, margin_b=12))
-
         refresh_btn = Button("Refresh", on_press=self.refresh_network)
         self.add(refresh_btn)
-
         self.status = make_label("")
         self.add(self.status)
         self.refresh_network(None)
 
     def refresh_network(self, widget):
         if not self.node:
-            self.status.text = "Reticulum not available"
+            self.status.text = "No node"
             return
-        self.status.text = f"Peers discovered: {len(self.node.get_discovered_peers())}"
+        status = "Reticulum: ON" if self.node.rns_enabled else "Reticulum: OFF"
+        self.status.text = f"{status} | Peers: {len(self.node.get_discovered_peers())}"
 
 
 class SettingsScreen(Box):
-    def __init__(self, node):
+    def __init__(self, node, app_ref):
         super().__init__()
         self.style.direction = COLUMN
         self.style.margin = 10
         self.node = node
+        self.app_ref = app_ref
         self.add(make_label("Settings", size=20, margin_b=10))
 
         h = self.node.get_identity_hash() if self.node else ""
-        self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nRNS not available", size=11, margin_b=12))
+        self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nN/A", size=11, margin_b=12))
+
+        self.rns_btn = Button(
+            "Disable Reticulum" if (self.node and self.node.rns_enabled) else "Enable Reticulum",
+            on_press=self.toggle_rns
+        )
+        self.add(self.rns_btn)
+        self.rns_status = Label("")
+        self.add(self.rns_status)
 
         announce_btn = Button("Announce Myself", on_press=self.announce)
         self.add(announce_btn)
@@ -356,8 +328,25 @@ class SettingsScreen(Box):
         self.add(self.announce_label)
 
         self.add(make_label("Interfaces", size=16, margin_b=6))
-        self.add(Label("AutoInterface: Enabled"))
+        self.add(Label("AutoInterface: Enabled (Reticulum)"))
         self.add(make_label("RMESHV v1.0.0", size=10, margin_b=8))
+
+    def toggle_rns(self, widget):
+        if not self.node:
+            return
+        if self.node.rns_enabled:
+            self.rns_status.text = "Restart app to disable Reticulum"
+            return
+        self.rns_status.text = "Starting Reticulum..."
+        t = threading.Thread(target=self._enable_rns, daemon=True)
+        t.start()
+
+    def _enable_rns(self):
+        ok = self.node.enable_rns()
+        if ok:
+            self.rns_status.text = "Reticulum enabled!"
+        else:
+            self.rns_status.text = "Reticulum unavailable"
 
     def announce(self, widget):
         if self.node:
@@ -366,9 +355,8 @@ class SettingsScreen(Box):
 
 class ReticulumMeshApp(App):
     def startup(self):
-        self.main_window = MainWindow(title="Reticulum Mesh")
-        self.node = None
-        self.init_complete = False
+        self.main_window = MainWindow(title="RMESHV")
+        self.node = MobileNode()
 
         self.content_box = Box()
         self.content_box.style.direction = COLUMN
@@ -391,21 +379,7 @@ class ReticulumMeshApp(App):
         self.content_box.add(nav_bar)
         self.main_window.content = self.content_box
         self.main_window.show()
-
         self.show_screen("chat")
-
-        threading.Thread(target=self._init_background, daemon=True).start()
-
-    def _init_background(self):
-        try:
-            log("Starting background RNS init")
-            self.node = MobileReticulumNode()
-            self.init_complete = True
-            log(f"RNS init done, identity: {self.node.get_identity_hash()[:16]}...")
-        except Exception as e:
-            import traceback
-            log(f"Background init error: {e}")
-            log(traceback.format_exc())
 
     def show_screen(self, screen_name):
         self.screen_container.clear()
@@ -416,7 +390,7 @@ class ReticulumMeshApp(App):
         elif screen_name == "network":
             screen = NetworkScreen(self.node)
         elif screen_name == "settings":
-            screen = SettingsScreen(self.node)
+            screen = SettingsScreen(self.node, self)
         else:
             screen = MessagesScreen(self.node)
         self.screen_container.add(screen)
