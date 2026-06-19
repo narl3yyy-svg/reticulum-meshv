@@ -15,5 +15,5 @@ description = "Reticulum-based mesh app for Android"
 icon = "src/reticulum_mesh/resources/icon"
 sources = ["src/reticulum_mesh"]
 requires = [
-    "-e ../../",
+    "toga",
 ]
