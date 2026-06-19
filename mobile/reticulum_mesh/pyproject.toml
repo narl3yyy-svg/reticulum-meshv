@@ -1,3 +1,9 @@
+[project]
+name = "reticulum-mesh-mobile"
+version = "0.2.0"
+description = "Reticulum-based mesh app for Android"
+license = "GPL-3.0-or-later"
+
 [tool.briefcase]
 project_name = "Reticulum Mesh"
 bundle = "com.narl3y.reticulummesh"
@@ -9,6 +15,5 @@ description = "Reticulum-based mesh app for Android"
 icon = "src/reticulum_mesh/resources/icon"
 sources = ["src/reticulum_mesh"]
 requires = [
-    # During development, install the backend from the parent repo
     "-e ../../",
 ]
