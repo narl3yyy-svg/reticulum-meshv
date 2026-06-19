@@ -63,7 +63,7 @@ class NetworkWidget(QWidget):
         peer_layout.addWidget(self.peer_tree)
 
         peer_group.setLayout(peer_layout)
-        layout.addWidget(peer_group)
+        layout.addWidget(peer_group, 1)
 
         iface_group = QGroupBox("Active Interfaces")
         iface_group.setStyleSheet(f"""
@@ -89,7 +89,7 @@ class NetworkWidget(QWidget):
         iface_layout.addWidget(self.iface_tree)
 
         iface_group.setLayout(iface_layout)
-        layout.addWidget(iface_group)
+        layout.addWidget(iface_group, 1)
 
         path_group = QGroupBox("Known Paths")
         path_group.setStyleSheet(f"""

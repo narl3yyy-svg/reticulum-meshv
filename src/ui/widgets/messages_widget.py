@@ -193,7 +193,7 @@ class MessagesWidget(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
         self.conversation_panel = self._build_conversation_panel()
         splitter.addWidget(self.conversation_panel)

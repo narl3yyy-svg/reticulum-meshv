@@ -1,11 +1,12 @@
-"""Interfaces tab — node setup, status, and config editor popup."""
+"""Interfaces tab — node setup, status, serial, server, config editor."""
 
 import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QGroupBox, QMessageBox, QLineEdit, QDialog
+    QGroupBox, QMessageBox, QLineEdit, QDialog, QScrollArea,
+    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from pathlib import Path
 from src.config.theme import MeshTheme
 from src.ui.widgets.common import StatusDot
@@ -87,7 +88,17 @@ class InterfacesWidget(QWidget):
         self._refresh_status()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
@@ -182,6 +193,86 @@ class InterfacesWidget(QWidget):
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
 
+        # === Add TCP Server ===
+        server_group = QGroupBox("Add TCP Server")
+        server_group.setStyleSheet(group_style())
+        server_layout = QVBoxLayout()
+
+        server_desc = QLabel("Run a TCP Server interface so other RNS nodes can connect to this PC:")
+        server_desc.setWordWrap(True)
+        server_desc.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        server_layout.addWidget(server_desc)
+
+        server_row = QHBoxLayout()
+        server_row.addWidget(QLabel("Listen IP:"))
+        self.server_ip = QLineEdit("0.0.0.0")
+        self.server_ip.setMaximumWidth(120)
+        self.server_ip.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
+        server_row.addWidget(self.server_ip)
+
+        server_row.addWidget(QLabel("Port:"))
+        self.server_port = QLineEdit("4242")
+        self.server_port.setMaximumWidth(70)
+        self.server_port.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
+        server_row.addWidget(server_port)
+
+        add_server_btn = QPushButton("Add TCP Server")
+        add_server_btn.clicked.connect(self._add_tcp_server)
+        server_row.addWidget(add_server_btn)
+
+        server_layout.addLayout(server_row)
+        server_group.setLayout(server_layout)
+        layout.addWidget(server_group)
+
+        # === Add Serial Interface ===
+        serial_group = QGroupBox("Add Serial / Radio Interface")
+        serial_group.setStyleSheet(group_style())
+        serial_layout = QVBoxLayout()
+
+        serial_desc = QLabel(
+            "Configure serial interfaces for LoRa radios, TNCs, and other serial devices.\n"
+            "SerialInterface = direct serial, KISSInterface = TNC KISS protocol."
+        )
+        serial_desc.setWordWrap(True)
+        serial_desc.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        serial_layout.addWidget(serial_desc)
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type:"))
+        self.serial_type = QComboBox()
+        self.serial_type.addItem("SerialInterface", "SerialInterface")
+        self.serial_type.addItem("KISSInterface", "KISSInterface")
+        self.serial_type.setStyleSheet(f"""
+            QComboBox {{ background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT};
+                border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px; }}
+            QComboBox::drop-down {{ border: none; }}
+        """)
+        type_row.addWidget(self.serial_type)
+
+        type_row.addWidget(QLabel("Port:"))
+        self.serial_port = QLineEdit("/dev/ttyUSB0")
+        self.serial_port.setMaximumWidth(140)
+        self.serial_port.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
+        type_row.addWidget(self.serial_port)
+
+        type_row.addWidget(QLabel("Baud:"))
+        self.serial_baud = QLineEdit("115200")
+        self.serial_baud.setMaximumWidth(80)
+        self.serial_baud.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
+        type_row.addWidget(self.serial_baud)
+
+        self.serial_flow = QCheckBox("Flow Control")
+        self.serial_flow.setStyleSheet(f"color: {MeshTheme.TEXT}; background: transparent;")
+        type_row.addWidget(self.serial_flow)
+
+        add_serial_btn = QPushButton("Add Serial")
+        add_serial_btn.clicked.connect(self._add_serial_interface)
+        type_row.addWidget(add_serial_btn)
+
+        serial_layout.addLayout(type_row)
+        serial_group.setLayout(serial_layout)
+        layout.addWidget(serial_group)
+
         # === Connect to Phone ===
         phone_group = QGroupBox("Connect to a Phone")
         phone_group.setStyleSheet(group_style())
@@ -197,11 +288,13 @@ class InterfacesWidget(QWidget):
         self.phone_ip = QLineEdit()
         self.phone_ip.setPlaceholderText("10.10.100.11")
         self.phone_ip.setMaximumWidth(160)
+        self.phone_ip.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
         ip_row.addWidget(self.phone_ip)
 
         ip_row.addWidget(QLabel("Port:"))
         self.phone_port = QLineEdit("4242")
         self.phone_port.setMaximumWidth(70)
+        self.phone_port.setStyleSheet(f"background-color: {MeshTheme.INPUT_BG}; color: {MeshTheme.TEXT}; border: 1px solid {MeshTheme.INPUT_BORDER}; border-radius: 8px; padding: 6px 10px; font-size: 13px;")
         ip_row.addWidget(self.phone_port)
 
         add_btn = QPushButton("Add to Config")
@@ -266,10 +359,9 @@ class InterfacesWidget(QWidget):
         restart_group.setLayout(restart_layout)
         layout.addWidget(restart_group)
 
-        layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 1)
 
-        # Auto-refresh timer
-        from PyQt6.QtCore import QTimer
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh_status)
         self._timer.start(10000)
@@ -307,36 +399,65 @@ class InterfacesWidget(QWidget):
             total = len(ifaces)
             if down_count > 0 and up_count == 0:
                 self.status_summary.setText(f"All {total} interface(s) down")
-                self.status_summary.setStyleSheet(f"color: {MeshTheme.ERROR}; font-size: 14px; font-weight: 600; padding: 8px 14px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 12px;")
                 self.status_dot.set_color(MeshTheme.ERROR)
             elif down_count > 0:
                 self.status_summary.setText(f"{up_count} up, {down_count} down ({total} total)")
-                self.status_summary.setStyleSheet(f"color: {MeshTheme.WARNING}; font-size: 14px; font-weight: 600; padding: 8px 14px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 12px;")
                 self.status_dot.set_color(MeshTheme.WARNING)
             else:
                 self.status_summary.setText(f"All {up_count} interface(s) up")
-                self.status_summary.setStyleSheet(f"color: {MeshTheme.SUCCESS}; font-size: 14px; font-weight: 600; padding: 8px 14px; background: {MeshTheme.SURFACE_VARIANT}; border-radius: 12px;")
                 self.status_dot.set_color(MeshTheme.SUCCESS)
 
         except Exception as e:
             self.status_details.setPlainText(f"Error: {e}")
             self.status_dot.set_color(MeshTheme.TEXT_DIM)
 
+    def _add_tcp_server(self):
+        ip = self.server_ip.text().strip() or "0.0.0.0"
+        port = self.server_port.text().strip() or "4242"
+        try:
+            text = self.config_path.read_text() if self.config_path.exists() else ""
+            if f"listen_port = {port}" in text:
+                QMessageBox.information(self, "Exists", f"TCP server on port {port} already in config.")
+                return
+            entry = f"\n[[TCP Server {port}]]\n  type = TCPServerInterface\n  interface_enabled = Yes\n  listen_ip = {ip}\n  listen_port = {port}\n"
+            self.config_path.write_text(text.rstrip() + "\n" + entry)
+            QMessageBox.information(self, "Added", f"TCP server on {ip}:{port} added.\nRestart to apply.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _add_serial_interface(self):
+        iface_type = self.serial_type.currentData()
+        port = self.serial_port.text().strip() or "/dev/ttyUSB0"
+        baud = self.serial_baud.text().strip() or "115200"
+        flow = "Yes" if self.serial_flow.isChecked() else "No"
+        try:
+            text = self.config_path.read_text() if self.config_path.exists() else ""
+            if f"port = {port}" in text:
+                QMessageBox.information(self, "Exists", f"Serial interface on {port} already in config.")
+                return
+            entry = f"\n[[Serial {port}]]\n  type = {iface_type}\n  interface_enabled = Yes\n  port = {port}\n  speed = {baud}\n"
+            if iface_type == "SerialInterface" and self.serial_flow.isChecked():
+                entry += f"  flow_control = {flow}\n"
+            if iface_type == "KISSInterface":
+                entry += "  preamble = AA\n  txtail = 0\n  persistence = 200\n  slottime = 20\n"
+            self.config_path.write_text(text.rstrip() + "\n" + entry)
+            QMessageBox.information(self, "Added", f"{iface_type} on {port} @ {baud} baud added.\nRestart to apply.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
     def _add_phone_connection(self):
         ip = self.phone_ip.text().strip()
         port = self.phone_port.text().strip() or "4242"
         if not ip:
             return
-
         try:
             text = self.config_path.read_text() if self.config_path.exists() else ""
             if f"target_host = {ip}" in text:
                 QMessageBox.information(self, "Already exists", f"TCP client to {ip} already in config.")
                 return
-
             entry = f"\n[[TCP Client {ip}]]\n  type = TCPClientInterface\n  interface_enabled = Yes\n  target_host = {ip}\n  target_port = {port}\n"
             self.config_path.write_text(text.rstrip() + "\n" + entry)
-            QMessageBox.information(self, "Added", f"TCP client to {ip}:{port} added.\nRestart app to apply.")
+            QMessageBox.information(self, "Added", f"TCP client to {ip}:{port} added.\nRestart to apply.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
@@ -360,16 +481,13 @@ class InterfacesWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
-
         try:
             import RNS
             import threading
-
             if self.rns_node:
                 self.status_summary.setText("Restarting RNS...")
                 self.status_dot.set_color(MeshTheme.WARNING)
                 self.status_details.setPlainText("Reinitializing Reticulum...")
-
                 def do_restart():
                     try:
                         self.rns_node.reticulum = RNS.Reticulum(configdir=str(self.rns_node.rns_config_dir))
@@ -379,11 +497,8 @@ class InterfacesWidget(QWidget):
                             self.backend.lxmf_messenger.announce(display_name)
                     except Exception as e:
                         print(f"[RNS] Restart error: {e}")
-
                 t = threading.Thread(target=do_restart, daemon=True)
                 t.start()
-
-                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(3000, self._refresh_status)
                 QMessageBox.information(self, "Restarted", "RNS reinitialized. Refreshing status...")
         except Exception as e:
