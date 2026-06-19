@@ -314,13 +314,12 @@ class SettingsScreen(Box):
         h = self.node.get_identity_hash() if self.node else ""
         self.add(make_label(f"Hash:\n{h}" if h else "Hash:\nN/A", size=11, margin_b=12))
 
-        self.rns_btn = Button(
-            "Disable Reticulum" if (self.node and self.node.rns_enabled) else "Enable Reticulum",
-            on_press=self.toggle_rns
-        )
+        rns_state = "ON" if (self.node and self.node.rns_enabled) else "OFF"
+        self.rns_label = make_label(f"Reticulum: {rns_state}")
+        self.add(self.rns_label)
+
+        self.rns_btn = Button("Enable Reticulum", on_press=self.toggle_rns)
         self.add(self.rns_btn)
-        self.rns_status = Label("")
-        self.add(self.rns_status)
 
         announce_btn = Button("Announce Myself", on_press=self.announce)
         self.add(announce_btn)
@@ -328,25 +327,19 @@ class SettingsScreen(Box):
         self.add(self.announce_label)
 
         self.add(make_label("Interfaces", size=16, margin_b=6))
-        self.add(Label("AutoInterface: Enabled (Reticulum)"))
+        self.add(Label("AutoInterface: Enabled"))
         self.add(make_label("RMESHV v1.0.0", size=10, margin_b=8))
 
     def toggle_rns(self, widget):
-        if not self.node:
+        if not self.node or self.node.rns_enabled:
             return
-        if self.node.rns_enabled:
-            self.rns_status.text = "Restart app to disable Reticulum"
-            return
-        self.rns_status.text = "Starting Reticulum..."
-        t = threading.Thread(target=self._enable_rns, daemon=True)
-        t.start()
+        self.rns_label.text = "Reticulum: starting…"
+        threading.Thread(target=self._enable_rns, daemon=True).start()
 
     def _enable_rns(self):
         ok = self.node.enable_rns()
         if ok:
-            self.rns_status.text = "Reticulum enabled!"
-        else:
-            self.rns_status.text = "Reticulum unavailable"
+            self.node.rns_enabled = True
 
     def announce(self, widget):
         if self.node:
