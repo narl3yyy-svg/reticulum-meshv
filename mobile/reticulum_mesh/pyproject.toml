@@ -1,13 +1,13 @@
 [project]
 name = "reticulum-mesh-mobile"
-version = "0.2.0"
+version = "1.0.0"
 description = "Reticulum-based mesh app for Android"
 license = "GPL-3.0-or-later"
 
 [tool.briefcase]
 project_name = "Reticulum Mesh"
 bundle = "com.narl3y.reticulummesh"
-version = "0.2.0"
+version = "1.0.0"
 
 [tool.briefcase.app.reticulum_mesh]
 formal_name = "Reticulum Mesh"

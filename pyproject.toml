@@ -1,6 +1,6 @@
 [project]
 name = "reticulum-meshv"
-version = "0.2.0"
+version = "1.0.0"
 description = "PyQt6-based Reticulum mesh networking application with advanced file sharing"
 authors = [{name = "Developer"}]
 license = "GPL-3.0"
