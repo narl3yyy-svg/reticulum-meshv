@@ -343,7 +343,7 @@ class MessagesWidget(QWidget):
                 border: none; border-radius: 22px;
                 font-size: 22px; font-weight: 700;
             }}
-            QPushButton:hover {{ background-color: {MeshTheme.BORDER_LIGHT}; }}
+            QPushButton:hover {{ background-color: {MeshTheme.BORDER_STRONG}; }}
         """)
         attach_btn.clicked.connect(self._attach_file)
         inp_layout.addWidget(attach_btn)
