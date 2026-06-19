@@ -18,4 +18,8 @@ requires = [
     "toga",
     "toga-android",
     "toga-core",
+    "RNS",
+    "LXMF",
 ]
+
+
