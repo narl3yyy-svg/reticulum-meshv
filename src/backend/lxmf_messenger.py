@@ -8,10 +8,11 @@ import LXMF
 
 
 class LXMFMessenger:
-    def __init__(self, identity: RNS.Identity, storage_dir: str):
+    def __init__(self, identity: RNS.Identity, storage_dir: str, display_name: str = "Reticulum Mesh User"):
         self.identity = identity
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.display_name = display_name
 
         self.router = LXMF.LXMRouter(
             identity=identity,
@@ -19,11 +20,11 @@ class LXMFMessenger:
         )
 
         self.delivery_dest = self.router.register_delivery_identity(
-            identity, display_name="Reticulum Mesh User"
+            identity, display_name=display_name
         )
+        self.delivery_dest.set_proof_strategy(RNS.Destination.PROVE_ALL)
         self.router.register_delivery_callback(self._on_message)
 
-        # Source destination for outgoing messages
         self.source_dest = RNS.Destination(
             identity,
             RNS.Destination.OUT,
@@ -34,6 +35,14 @@ class LXMFMessenger:
 
         self.message_callback: Optional[Callable] = None
         self.conversations: dict[str, list] = {}
+
+    def set_display_name(self, name: str):
+        self.display_name = name
+        try:
+            if self.delivery_dest:
+                self.delivery_dest.display_name = name
+        except:
+            pass
 
     def _on_message(self, lxmessage: LXMF.LXMessage):
         try:
@@ -112,9 +121,11 @@ class LXMFMessenger:
 
     def announce(self, app_data: str = "") -> bool:
         try:
+            name = app_data if app_data else self.display_name
             if self.delivery_dest:
-                self.delivery_dest.announce(app_data.encode("utf-8") if app_data else None)
+                self.delivery_dest.announce(name.encode("utf-8") if name else None)
+                print(f"[LXMF] Announced as: {name}")
                 return True
-        except:
-            pass
+        except Exception as e:
+            print(f"[LXMF] Announce error: {e}")
         return False

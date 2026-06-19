@@ -55,13 +55,15 @@ class ReticulumNode:
         self.text_message_callback = callback
 
     def announce_myself(self, app_data: str = ""):
-        if self.file_destination:
-            try:
-                self.file_destination.announce(app_data.encode("utf-8") if app_data else None)
-                return True
-            except:
-                return False
-        return False
+        try:
+            if self.file_destination:
+                data = app_data.encode("utf-8") if app_data else None
+                self.file_destination.announce(data)
+                print(f"[RNS] Announced file transfer destination{' with data: ' + app_data if app_data else ''}")
+            return True
+        except Exception as e:
+            print(f"[RNS] Announce error: {e}")
+            return False
 
     def _announce_received(self, destination_hash, announced_identity, app_data):
         try:

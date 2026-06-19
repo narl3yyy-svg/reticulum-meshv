@@ -461,7 +461,69 @@ class MessagesWidget(QWidget):
             import os
             fname = os.path.basename(path)
             size = os.path.getsize(path)
-            self._add_system_message(f"File: {fname} ({size:,} bytes)")
+            size_str = self._format_file_size(size)
+            self._add_file_bubble(fname, size_str, path)
+
+    def _format_file_size(self, size):
+        if size < 1024:
+            return f"{size} B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        elif size < 1024 * 1024 * 1024:
+            return f"{size / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+    def _add_file_bubble(self, fname, size_str, path=""):
+        bubble = QFrame()
+        bubble.setStyleSheet(f"""
+            QFrame {{
+                background-color: {MeshTheme.SURFACE};
+                border: 1px solid {MeshTheme.BORDER_CARD};
+                border-radius: 12px;
+                padding: 10px 14px;
+            }}
+        """)
+        bl = QVBoxLayout(bubble)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(4)
+
+        file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
+        file_row.setSpacing(10)
+
+        icon = QLabel("[FILE]")
+        icon.setStyleSheet(f"color: {MeshTheme.ACCENT}; font-size: 11px; font-weight: 700; background: transparent; padding: 4px 8px; border: 1px solid {MeshTheme.BORDER}; border-radius: 6px;")
+        file_row.addWidget(icon)
+
+        info = QVBoxLayout()
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setSpacing(2)
+        name_label = QLabel(fname)
+        name_label.setStyleSheet(f"color: {MeshTheme.TEXT}; font-size: 13px; font-weight: 600; background: transparent;")
+        info.addWidget(name_label)
+        size_label = QLabel(size_str)
+        size_label.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 11px; background: transparent;")
+        info.addWidget(size_label)
+        file_row.addLayout(info, 1)
+        bl.addLayout(file_row)
+
+        ts = QDateTime.currentDateTime()
+        time_label = QLabel(ts.toString('HH:mm'))
+        time_label.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 10px; background: transparent;")
+        bl.addWidget(time_label)
+
+        self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignRight)
+
+        conv = self.conversations.get(self.current_conv_id)
+        if conv:
+            conv.update_message(f"[File] {fname}", ts)
+
+        if self.backend and hasattr(self.backend, 'send_message') and self.current_conv_id and path:
+            try:
+                self.backend.send_message(self.current_conv_id, f"[File: {fname} ({size_str})]")
+            except:
+                pass
 
     def _add_system_message(self, text):
         label = QLabel(text)

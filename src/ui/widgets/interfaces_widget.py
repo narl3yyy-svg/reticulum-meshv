@@ -26,17 +26,71 @@ class InterfacesWidget(QWidget):
         layout.setSpacing(16)
 
         title = QLabel("Reticulum Interfaces & Link Status")
-        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {MeshTheme.TEXT}; background: transparent;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {MeshTheme.TEXT}; background: transparent;")
         layout.addWidget(title)
 
         def group_style():
             return f"""
                 QGroupBox {{ color: {MeshTheme.TEXT_MUTED}; font-size: 12px;
-                    border: 1px solid {MeshTheme.BORDER}; border-radius: 10px; margin-top: 20px;
+                    border: 1px solid {MeshTheme.BORDER_CARD}; border-radius: 16px; margin-top: 20px;
                     padding: 16px; }}
                 QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
                     padding: 4px 12px; color: {MeshTheme.TEXT_MUTED}; font-size: 12px; }}
             """
+
+        node_group = QGroupBox("This Node Setup")
+        node_group.setStyleSheet(group_style())
+        node_layout = QVBoxLayout()
+
+        node_desc = QLabel(
+            "This desktop is configured as a central node. Phones running MeshChatX can connect to it.\n"
+            "Make sure your firewall allows incoming TCP on port 4242."
+        )
+        node_desc.setWordWrap(True)
+        node_desc.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        node_layout.addWidget(node_desc)
+
+        info_row = QHBoxLayout()
+        your_ip = QLabel("Your IPs on this network:")
+        your_ip.setStyleSheet(f"color: {MeshTheme.TEXT}; font-weight: 600; background: transparent;")
+        info_row.addWidget(your_ip)
+        info_row.addStretch()
+        node_layout.addLayout(info_row)
+
+        try:
+            import socket
+            hostname = socket.gethostname()
+            ips = []
+            try:
+                ips = socket.gethostbyname_ex(hostname)[2]
+            except:
+                pass
+            if not ips:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    s.connect(("8.8.8.8", 80))
+                    ips = [s.getsockname()[0]]
+                except:
+                    ips = ["127.0.0.1"]
+                finally:
+                    s.close()
+            for ip in set(ips):
+                ip_label = QLabel(f"  {ip}:4242")
+                ip_label.setStyleSheet(f"font-family: 'JetBrains Mono', monospace; font-size: 13px; color: {MeshTheme.ACCENT}; background: transparent;")
+                node_layout.addWidget(ip_label)
+        except:
+            pass
+
+        phone_info = QLabel(
+            "\nOn your phone (MeshChatX), add a TCP Client interface:\n"
+            "  Host: <this PC's IP>   Port: 4242"
+        )
+        phone_info.setWordWrap(True)
+        phone_info.setStyleSheet(f"color: {MeshTheme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+        node_layout.addWidget(phone_info)
+
+        node_group.setLayout(node_layout)
+        layout.addWidget(node_group)
 
         # Connection Status
         status_group = QGroupBox("Connection Status")
