@@ -1,4 +1,4 @@
-"""Reticulum node manager with improved announcement handling."""
+"""Reticulum node with improved text message handling for mobile interoperability."""
 
 import RNS
 from pathlib import Path
@@ -14,6 +14,9 @@ class ReticulumNode:
         self.app_config_dir.mkdir(parents=True, exist_ok=True)
 
         self.discovered_peers = {}
+        self.pending_text_messages = []   # For incoming small text messages
+        self.text_message_callback = None
+
         self.reticulum = None
         self.identity = None
         self.file_destination = None
@@ -30,47 +33,67 @@ class ReticulumNode:
                 "filetransfer"
             )
 
+            # Register resource handler
+            self.file_destination.set_packet_callback(self._packet_received)
             try:
                 RNS.Transport.register_announce_handler(self._announce_received)
-            except Exception:
+            except:
                 pass
 
             RNS.log("Reticulum Mesh node ready. Identity: " + self.get_short_identity_hash())
 
         except Exception as e:
             try:
-                RNS.log(f"Reticulum failed to start: {e}")
+                RNS.log(f"Reticulum init error: {e}")
             except:
-                print(f"Reticulum failed to start: {e}")
-
+                print(f"Reticulum init error: {e}")
             self.reticulum = None
-            self.identity = None
-            self.file_destination = None
+
+    def set_text_message_callback(self, callback):
+        """Set a callback function(sender_hash, text) for incoming text messages."""
+        self.text_message_callback = callback
 
     def announce_myself(self):
         if self.file_destination:
             try:
                 self.file_destination.announce()
                 return True
-            except Exception:
+            except:
                 return False
         return False
 
     def _announce_received(self, destination_hash, announced_identity, app_data):
         try:
             hash_hex = destination_hash.hex()
-            # Always store the peer, even if we don't have the full identity yet
             name = announced_identity.hash.hex()[:12] if announced_identity else hash_hex[:12]
             self.discovered_peers[hash_hex] = {
                 'name': name,
                 'last_seen': time.time()
             }
-            RNS.log(f"Discovered peer via announcement: {hash_hex[:12]}...")
-        except Exception as e:
-            try:
-                RNS.log(f"Error processing announcement: {e}")
-            except:
-                pass
+        except:
+            pass
+
+    def _packet_received(self, packet):
+        """Handle incoming packets/resources. Try to treat small ones as text messages."""
+        try:
+            if packet.data and len(packet.data) < 4096:  # Small payload = likely text
+                text = packet.data.decode("utf-8", errors="ignore")
+                sender = packet.destination.hash.hex() if hasattr(packet, "destination") else "unknown"
+
+                self.pending_text_messages.append((sender, text))
+
+                if self.text_message_callback:
+                    try:
+                        self.text_message_callback(sender, text)
+                    except:
+                        pass
+        except:
+            pass
+
+    def get_pending_text_messages(self):
+        msgs = self.pending_text_messages.copy()
+        self.pending_text_messages.clear()
+        return msgs
 
     def get_discovered_peers(self):
         return list(self.discovered_peers.items())
