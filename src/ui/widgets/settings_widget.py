@@ -1,9 +1,9 @@
-"""Settings widget with advanced identity management."""
+"""Settings widget with identity hash display and announce button."""
 
 import RNS
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication, QInputDialog
+    QFileDialog, QCheckBox, QGroupBox, QMessageBox, QTextEdit, QApplication
 )
 from PyQt6.QtCore import Qt
 from pathlib import Path
@@ -28,6 +28,26 @@ class SettingsWidget(QWidget):
         title = QLabel("Settings")
         title.setStyleSheet("font-size: 22px; font-weight: bold;")
         layout.addWidget(title)
+
+        # === Identity Section ===
+        id_group = QGroupBox("Your Identity")
+        id_layout = QVBoxLayout()
+
+        self.identity_label = QLabel()
+        self.identity_label.setStyleSheet("font-family: monospace; background: #2a2a2a; padding: 10px; border-radius: 6px; font-size: 12px;")
+        self._update_identity_display()
+        id_layout.addWidget(self.identity_label)
+
+        announce_btn = QPushButton("Announce Myself on Network")
+        announce_btn.clicked.connect(self._announce_myself)
+        id_layout.addWidget(announce_btn)
+
+        note = QLabel("Announcing makes you visible to other nodes on the Reticulum network.")
+        note.setStyleSheet("color: #888; font-size: 11px;")
+        id_layout.addWidget(note)
+
+        id_group.setLayout(id_layout)
+        layout.addWidget(id_group)
 
         # === Downloads ===
         dl_group = QGroupBox("File Downloads")
@@ -80,116 +100,26 @@ class SettingsWidget(QWidget):
         iface_group.setLayout(iface_layout)
         layout.addWidget(iface_group)
 
-        # === Identity Management (Improved) ===
-        id_group = QGroupBox("Identity Management")
-        id_layout = QVBoxLayout()
-
-        self.identity_info = QLabel()
-        self.identity_info.setStyleSheet("font-family: monospace; background: #2a2a2a; padding: 8px; border-radius: 4px;")
-        self._update_identity_display()
-        id_layout.addWidget(self.identity_info)
-
-        btn_row1 = QHBoxLayout()
-        new_id_btn = QPushButton("Create New Identity")
-        new_id_btn.clicked.connect(self._create_new_identity)
-        backup_btn = QPushButton("Backup Current Identity")
-        backup_btn.clicked.connect(self._backup_identity)
-        btn_row1.addWidget(new_id_btn)
-        btn_row1.addWidget(backup_btn)
-        id_layout.addLayout(btn_row1)
-
-        btn_row2 = QHBoxLayout()
-        load_btn = QPushButton("Load Identity from File...")
-        load_btn.clicked.connect(self._load_identity_from_file)
-        export_btn = QPushButton("Export Identity")
-        export_btn.clicked.connect(self._export_identity)
-        btn_row2.addWidget(load_btn)
-        btn_row2.addWidget(export_btn)
-        id_layout.addLayout(btn_row2)
-
-        note = QLabel("Your identity is permanent. Creating a new one backs up the old one automatically.")
-        note.setStyleSheet("color: #888; font-size: 11px;")
-        id_layout.addWidget(note)
-
-        id_group.setLayout(id_layout)
-        layout.addWidget(id_group)
-
-        # === Status ===
-        status_group = QGroupBox("Status")
-        status_layout = QVBoxLayout()
-        self.status_text = QTextEdit()
-        self.status_text.setReadOnly(True)
-        self.status_text.setMaximumHeight(100)
-        status_layout.addWidget(self.status_text)
-        refresh_btn = QPushButton("Refresh Status")
-        refresh_btn.clicked.connect(self._refresh_status)
-        status_layout.addWidget(refresh_btn)
-        status_group.setLayout(status_layout)
-        layout.addWidget(status_group)
-
         layout.addStretch()
 
         self._load_current_interface_settings()
-        self._refresh_status()
 
     def _update_identity_display(self):
         if self.rns_node and self.rns_node.identity:
-            short = self.rns_node.get_short_identity_hash()
-            full = self.rns_node.get_identity_hash()
-            text = f"Current Identity:\nShort: {short}\nFull:  {full}"
-            self.identity_info.setText(text)
-        else:
-            self.identity_info.setText("No identity loaded.")
-
-    def _create_new_identity(self):
-        reply = QMessageBox.question(
-            self, "Create New Identity",
-            "This will back up your current identity and create a new one.\nContinue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            identity_path = self.backend.app_config_dir / "identity.key"
-            if identity_path.exists():
-                backup_path = identity_path.with_suffix(".key.backup")
-                shutil.copy2(identity_path, backup_path)
-
-            new_identity = RNS.Identity()
-            new_identity.to_file(str(identity_path))
-
-            QMessageBox.information(self, "Success", 
-                f"New identity created and old one backed up.\nPlease restart the application.")
-            self._update_identity_display()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create new identity:\n{str(e)}")
-
-    def _load_identity_from_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select identity.key file")
-        if not file_path:
-            return
-
-        try:
-            target = self.backend.app_config_dir / "identity.key"
-            shutil.copy2(file_path, target)
-            QMessageBox.information(self, "Loaded", "Identity loaded successfully. Please restart.")
-            self._update_identity_display()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load identity:\n{str(e)}")
-
-    def _export_identity(self):
-        if not self.rns_node or not self.rns_node.identity:
-            QMessageBox.warning(self, "Error", "No identity loaded.")
-            return
-
-        dest_path, _ = QFileDialog.getSaveFileName(self, "Export identity.key", "identity.key")
-        if dest_path:
             try:
-                shutil.copy2(self.backend.app_config_dir / "identity.key", dest_path)
-                QMessageBox.information(self, "Exported", f"Identity exported to {dest_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+                full_hash = self.rns_node.get_identity_hash()
+                text = f"Your Identity Hash:\n{full_hash}"
+                self.identity_label.setText(text)
+            except:
+                self.identity_label.setText("Could not load identity hash.")
+        else:
+            self.identity_label.setText("Identity not loaded.")
+
+    def _announce_myself(self):
+        if self.rns_node and self.rns_node.announce_myself():
+            QMessageBox.information(self, "Announced", "You are now visible on the Reticulum network.")
+        else:
+            QMessageBox.warning(self, "Error", "Could not announce (Reticulum not ready).")
 
     def _save_interface_settings(self):
         config_path = Path.home() / ".reticulum" / "config"
@@ -250,27 +180,3 @@ class SettingsWidget(QWidget):
                 os.execv(sys.executable, [sys.executable, "-m", "src.main"])
             except:
                 QApplication.quit()
-
-    def _refresh_status(self):
-        try:
-            if self.rns_node and self.rns_node.reticulum:
-                text = f"Reticulum running\nIdentity: {self.rns_node.get_short_identity_hash()}\nConfig: {self.rns_node.reticulum.configdir}"
-                self.status_text.setPlainText(text)
-            else:
-                self.status_text.setPlainText("Reticulum not running.")
-        except Exception as e:
-            self.status_text.setPlainText(str(e))
-
-    def _backup_identity(self):
-        src = self.backend.app_config_dir / "identity.key"
-        if not src.exists():
-            QMessageBox.warning(self, "Error", "No identity file found.")
-            return
-
-        dest, _ = QFileDialog.getSaveFileName(self, "Backup identity.key", "identity_backup.key")
-        if dest:
-            try:
-                shutil.copy2(src, dest)
-                QMessageBox.information(self, "Backed up", f"Saved to {dest}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
