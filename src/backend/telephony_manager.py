@@ -1,4 +1,4 @@
-"""LXST-based telephony (voice calls) manager."""
+"""Telephony manager using LXST audio codecs and Reticulum links for signalling."""
 
 import time
 import struct
@@ -16,60 +16,90 @@ class TelephonyManager:
     CALL_STATE_ACTIVE = "active"
     CALL_STATE_ENDED = "ended"
 
+    SIGNAL_CALL_INIT = 0x01
+    SIGNAL_CALL_ACCEPT = 0x02
+    SIGNAL_CALL_REJECT = 0x03
+    SIGNAL_CALL_END = 0x04
+    SIGNAL_AUDIO_FRAME = 0x10
+
     def __init__(self, identity: RNS.Identity):
         self.identity = identity
         self.state = self.CALL_STATE_IDLE
         self.current_call: Optional[dict] = None
         self.call_history: list = []
         self._state_callback: Optional[Callable] = None
-        self._audio_callback: Optional[Callable] = None
         self._ringtone_callback: Optional[Callable] = None
         self._lock = threading.Lock()
+        self._link: Optional[RNS.Link] = None
+        self._running = False
 
-        self._setup_lxst()
+        self._setup_destination()
 
-    def _setup_lxst(self):
+    def _setup_destination(self):
         try:
-            self.lxst_identity = LXST.LXSTIdentity(self.identity)
-            self.lxst_router = LXST.LXSTRouter(self.lxst_identity)
-            self.lxst_dest = LXST.LXSTDestination(
+            self.call_dest = RNS.Destination(
                 self.identity,
-                LXST.LXSTDestination.IN,
-                LXST.LXSTDestination.SINGLE,
+                RNS.Destination.IN,
+                RNS.Destination.SINGLE,
                 "reticulum-meshv",
                 "telephony"
             )
-            self.lxst_router.register_call_handler(self._on_incoming_call)
+            self.call_dest.set_link_established_callback(self._on_incoming_link)
         except Exception as e:
-            print(f"[Telephony] LXST init error: {e}")
-            self.lxst_identity = None
-            self.lxst_router = None
-            self.lxst_dest = None
+            print(f"[Telephony] Setup error: {e}")
+            self.call_dest = None
 
-    def _on_incoming_call(self, call):
+    def _on_incoming_link(self, link: RNS.Link):
         try:
+            peer_hash = link.remote_identity.hash.hex() if link.remote_identity else "unknown"
             with self._lock:
-                caller_hash = call.source.hash.hex() if call.source else "unknown"
                 self.current_call = {
-                    "peer_hash": caller_hash,
+                    "peer_hash": peer_hash,
                     "direction": "incoming",
                     "started": time.time(),
                 }
                 self.state = self.CALL_STATE_RINGING
+                self._link = link
+
+            link.set_link_closed_callback(self._on_link_closed)
 
             if self._ringtone_callback:
-                self._ringtone_callback(caller_hash)
-
+                self._ringtone_callback(peer_hash)
             if self._state_callback:
                 self._state_callback(self.state, self.current_call)
 
+            link.register_resource(self._on_resource)
+            link.set_packet_callback(self._on_packet)
+
         except Exception as e:
-            print(f"[Telephony] Incoming call error: {e}")
+            print(f"[Telephony] Incoming link error: {e}")
+
+    def _on_packet(self, data, packet):
+        pass
+
+    def _on_resource(self, resource):
+        pass
+
+    def _on_link_closed(self, link):
+        with self._lock:
+            if self.state in (self.CALL_STATE_ACTIVE, self.CALL_STATE_RINGING, self.CALL_STATE_CONNECTING):
+                self._end_call_locked()
 
     def initiate_call(self, destination_hash: str) -> bool:
         try:
             dest_bytes = bytes.fromhex(destination_hash)
-            remote_id = RNS.Identity.recall(dest_bytes)
+            remote_identity = RNS.Identity.recall(dest_bytes)
+            if not remote_identity:
+                remote_identity = RNS.Identity()
+                remote_identity.hash = dest_bytes
+
+            dest = RNS.Destination(
+                remote_identity,
+                RNS.Destination.OUT,
+                RNS.Destination.SINGLE,
+                "reticulum-meshv",
+                "telephony"
+            )
 
             with self._lock:
                 self.current_call = {
@@ -79,14 +109,23 @@ class TelephonyManager:
                 }
                 self.state = self.CALL_STATE_CONNECTING
 
-            if self.lxst_router:
-                call = self.lxst_router.initiate_call(remote_id)
-                with self._lock:
-                    self.state = self.CALL_STATE_ACTIVE
-
             if self._state_callback:
                 self._state_callback(self.state, self.current_call)
-            return True
+
+            link = RNS.Link.establish(dest)
+            if link:
+                with self._lock:
+                    self._link = link
+                    self.state = self.CALL_STATE_ACTIVE
+                link.set_link_closed_callback(self._on_link_closed)
+                if self._state_callback:
+                    self._state_callback(self.state, self.current_call)
+                return True
+
+            with self._lock:
+                self.state = self.CALL_STATE_IDLE
+                self.current_call = None
+            return False
 
         except Exception as e:
             print(f"[Telephony] Call initiation error: {e}")
@@ -100,7 +139,6 @@ class TelephonyManager:
             if self.state != self.CALL_STATE_RINGING:
                 return False
             self.state = self.CALL_STATE_ACTIVE
-
         if self._state_callback:
             self._state_callback(self.state, self.current_call)
         return True
@@ -121,26 +159,26 @@ class TelephonyManager:
             self.current_call["ended"] = time.time()
             self.current_call["duration"] = time.time() - self.current_call["started"]
             self.call_history.append(self.current_call)
+        if self._link:
+            try:
+                self._link.teardown()
+            except:
+                pass
+            self._link = None
         self.state = self.CALL_STATE_IDLE
         self.current_call = None
-
         if self._state_callback:
             self._state_callback(self.state, None)
 
     def send_audio_frame(self, frame: bytes) -> bool:
-        if self.state != self.CALL_STATE_ACTIVE or not self.current_call:
-            return False
-        try:
-            dest_hash = self.current_call["peer_hash"]
-            dest_bytes = bytes.fromhex(dest_hash)
-            remote_id = RNS.Identity.recall(dest_bytes)
-            if remote_id:
-                link = RNS.Link.establish(remote_id)
-                link.send(frame)
+        with self._lock:
+            if self.state != self.CALL_STATE_ACTIVE or not self._link:
+                return False
+            try:
+                self._link.send(frame)
                 return True
-        except:
-            pass
-        return False
+            except:
+                return False
 
     def get_call_state(self) -> str:
         return self.state
@@ -151,16 +189,13 @@ class TelephonyManager:
     def on_state_change(self, callback: Callable):
         self._state_callback = callback
 
-    def on_audio_frame(self, callback: Callable):
-        self._audio_callback = callback
-
     def on_ringtone(self, callback: Callable):
         self._ringtone_callback = callback
 
     def announce(self) -> bool:
         try:
-            if self.lxst_dest:
-                self.lxst_dest.announce()
+            if self.call_dest:
+                self.call_dest.announce()
                 return True
         except:
             pass

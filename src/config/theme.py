@@ -44,7 +44,7 @@ class ArchTheme:
 
 def get_stylesheet() -> str:
     """Generate QSS stylesheet."""
-    c = ArchTheme.COLORS
+    c = {**ArchTheme.COLORS, **ArchTheme.COMPONENT_COLORS}
     return f"""
     QMainWindow {{ background-color: {c['background']}; color: {c['on_background']}; }}
     QWidget {{ background-color: {c['background']}; color: {c['on_background']}; }}

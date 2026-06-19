@@ -1,4 +1,4 @@
-"""LXMF-based messaging with delivery receipts and propagation."""
+"""LXMF-based messaging using correct LXMF library API."""
 
 import time
 from pathlib import Path
@@ -17,63 +17,33 @@ class LXMFMessenger:
             identity=identity,
             storagepath=str(self.storage_dir)
         )
-        self.delivery_callback: Optional[Callable] = None
+
+        self.delivery_dest = self.router.register_delivery_identity(
+            identity, display_name="Reticulum Mesh User"
+        )
+        self.router.register_delivery_callback(self._on_message)
+
         self.message_callback: Optional[Callable] = None
-
-        self.lxmf_dest = LXMF.LXMFDestination(
-            identity,
-            LXMF.LXMFDestination.IN,
-            LXMF.LXMFDestination.SINGLE,
-            "reticulum-meshv",
-            "lxmf"
-        )
-        self.router.register_delivery_identity(
-            identity,
-            self.lxmf_dest
-        )
-        self.router.register_message_handler(self._on_message)
-
         self.conversations: dict[str, list] = {}
 
-    def _on_message(self, message: LXMF.LXMessage):
+    def _on_message(self, lxmessage: LXMF.LXMessage):
         try:
-            source_hash = message.source.hash.hex() if message.source else "unknown"
-            content = message.content.decode("utf-8", errors="replace") if message.content else ""
-            timestamp = message.timestamp or time.time()
-            title = message.title.decode("utf-8", errors="replace") if message.title else ""
+            source_hash = lxmessage.source.hash.hex() if lxmessage.source else "unknown"
+            content = lxmessage.content.decode("utf-8", errors="replace") if lxmessage.content else ""
+            title = lxmessage.title.decode("utf-8", errors="replace") if lxmessage.title else ""
+            timestamp = getattr(lxmessage, "timestamp", time.time())
 
             msg_data = {
                 "sender": source_hash,
                 "content": content,
                 "title": title,
                 "timestamp": timestamp,
-                "has_delivery": message.has_delivery,
-                "wants_receipt": message.wants_receipt,
+                "is_outgoing": False,
             }
 
-            conv_id = source_hash
-            if conv_id not in self.conversations:
-                self.conversations[conv_id] = []
-            self.conversations[conv_id].append(msg_data)
-
-            if message.wants_receipt:
-                try:
-                    receipt = LXMF.LXMessage(
-                        destination=LXMF.LXMFDestination(
-                            message.source,
-                            LXMF.LXMFDestination.OUT,
-                            LXMF.LXMFDestination.SINGLE,
-                            "reticulum-meshv",
-                            "lxmf"
-                        ),
-                        source=self.identity,
-                        content=b"__delivery_receipt__",
-                        title=b"Delivery Receipt",
-                        receipt=True,
-                    )
-                    self.router.outbound(receipt)
-                except:
-                    pass
+            if source_hash not in self.conversations:
+                self.conversations[source_hash] = []
+            self.conversations[source_hash].append(msg_data)
 
             if self.message_callback:
                 self.message_callback(source_hash, content, title, timestamp)
@@ -89,21 +59,22 @@ class LXMFMessenger:
                 remote_identity = RNS.Identity()
                 remote_identity.hash = dest_bytes
 
-            dest = LXMF.LXMFDestination(
+            dest = RNS.Destination(
                 remote_identity,
-                LXMF.LXMFDestination.OUT,
-                LXMF.LXMFDestination.SINGLE,
-                "reticulum-meshv",
-                "lxmf"
+                RNS.Destination.OUT,
+                RNS.Destination.SINGLE,
+                "lxmf",
+                "delivery"
             )
+
             message = LXMF.LXMessage(
-                destination=dest,
-                source=self.identity,
+                dest,
+                self.identity,
                 content=text.encode("utf-8") if isinstance(text, str) else text,
                 title=title.encode("utf-8") if title else b"",
-                wants_receipt=True,
             )
-            self.router.outbound(message)
+
+            self.router.handle_outbound(message)
 
             conv_id = destination_hash
             if conv_id not in self.conversations:
@@ -116,6 +87,7 @@ class LXMFMessenger:
                 "is_outgoing": True,
             })
             return True
+
         except Exception as e:
             print(f"[LXMF] Send error: {e}")
             return False
@@ -131,13 +103,9 @@ class LXMFMessenger:
 
     def announce(self) -> bool:
         try:
-            self.lxmf_dest.announce()
-            return True
+            if self.delivery_dest:
+                self.delivery_dest.announce()
+                return True
         except:
-            return False
-
-    def get_lxmf_address(self) -> str:
-        try:
-            return self.lxmf_dest.hash.hex()
-        except:
-            return ""
+            pass
+        return False
