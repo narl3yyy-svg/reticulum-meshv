@@ -1,4 +1,4 @@
-"""Reticulum Mesh Mobile App - Focused on messaging + settings."""
+"""Reticulum Mesh Mobile - Better identity visibility + interface settings."""
 
 import sys
 from pathlib import Path
@@ -60,7 +60,7 @@ class MessagesScreen(Box):
         dest_row.add(start_btn)
         self.add(dest_row)
 
-        self.status_label = Label("Enter the other device's full 64-char hash above.", style=Pack(font_size=11, margin_bottom=8))
+        self.status_label = Label("Enter the other device's full 64-char hash above, then tap Start.", style=Pack(font_size=11, margin_bottom=8))
         self.add(self.status_label)
 
         self.scroll = ScrollContainer(style=Pack(flex=1))
@@ -75,16 +75,16 @@ class MessagesScreen(Box):
         input_row.add(send_btn)
         self.add(input_row)
 
-        self.add_bubble("Tip: Both devices should announce first.", is_sent=False)
+        self.add_bubble("Tip: Both sides should tap Announce first.", is_sent=False)
 
     def start_chat(self, widget):
         dest = self.dest_input.value.strip().lower().replace(" ", "").replace("-", "")
         if len(dest) == 64:
             self.current_dest = dest
             self.add_bubble(f"Chat started with {dest[:12]}...", is_sent=False)
-            self.status_label.text = "Chat active. Send messages below."
+            self.status_label.text = "Chat active. Type below and tap Send."
         else:
-            self.add_bubble("Hash must be exactly 64 characters long.", is_sent=False)
+            self.add_bubble("Hash must be exactly 64 characters (no extra text).", is_sent=False)
 
     def add_bubble(self, text: str, is_sent: bool = True):
         bubble = ChatBubble(text, is_sent=is_sent, timestamp=get_timestamp())
@@ -92,7 +92,7 @@ class MessagesScreen(Box):
 
     def send_message(self, widget):
         if not self.current_dest:
-            self.add_bubble("Please start a chat first.", is_sent=False)
+            self.add_bubble("Please start a chat first (enter hash above).", is_sent=False)
             return
 
         text = self.input.value.strip()
@@ -117,16 +117,16 @@ class MessagesScreen(Box):
                 print(f"[Mobile] Message sent via Reticulum")
             except Exception as e:
                 print(f"[Mobile] Send error: {e}")
-                self.add_bubble("Failed to send via Reticulum.", is_sent=False)
+                self.add_bubble("Failed to send via Reticulum (check logs).", is_sent=False)
         else:
-            print(f"[Mobile] Backend not ready. Local only: {text}")
+            print(f"[Mobile] Backend not ready. Message only shown locally: {text}")
 
 
 class FilesScreen(Box):
     def __init__(self):
         super().__init__(style=Pack(direction=COLUMN, margin=10))
         self.add(Label("Files", style=Pack(font_size=20, margin_bottom=8)))
-        self.add(Label("File transfer (coming soon)"))
+        self.add(Label("File transfer coming soon."))
 
 
 class ContactsScreen(Box):
@@ -144,37 +144,48 @@ class SettingsScreen(Box):
 
         self.add(Label("Settings", style=Pack(font_size=20, margin_bottom=10)))
 
-        # Identity Hash
+        # === Identity ===
+        identity_text = "Your Identity Hash:\n(Not available yet - backend not ready)"
         if rns_node and hasattr(rns_node, "get_identity_hash"):
             try:
                 my_hash = rns_node.get_identity_hash()
-                self.add(Label(f"Your Identity:\n{my_hash}", style=Pack(margin_bottom=12, font_size=11)))
+                if my_hash:
+                    identity_text = f"Your Identity Hash:\n{my_hash}"
             except:
-                self.add(Label("Could not load identity hash."))
-        else:
-            self.add(Label("Identity hash not available."))
+                pass
+
+        self.add(Label(identity_text, style=Pack(margin_bottom=12, font_size=11)))
 
         # Announce button
-        announce_btn = Button("Announce Myself", on_press=self.announce_myself, style=Pack(margin_bottom=12))
+        announce_btn = Button("Announce Myself", on_press=self.announce_myself)
         self.add(announce_btn)
 
-        # Incoming announces toggle (placeholder for future)
-        self.add(Label("Incoming Announcements:"))
-        announce_switch = Switch("Accept incoming announces", value=True)
-        self.add(announce_switch)
+        self.announce_status = Label("")
+        self.add(self.announce_status)
 
-        # Basic interface info
-        self.add(Label("\nInterfaces (basic):", style=Pack(margin_top=12)))
-        self.add(Label("AutoInterface: Enabled"))
-        self.add(Label("TCP Client: Configured in config file"))
+        # === Interfaces (basic) ===
+        self.add(Label("\nInterfaces", style=Pack(font_size=16, margin_top=12, margin_bottom=6)))
+
+        self.auto_switch = Switch("AutoInterface", value=True)
+        self.add(self.auto_switch)
+
+        self.tcp_switch = Switch("TCP Client to desktop", value=True)
+        self.add(self.tcp_switch)
+
+        note = Label("Interface changes require app restart. Full config editing coming soon.", style=Pack(font_size=10, margin_top=6))
+        self.add(note)
 
     def announce_myself(self, widget):
         if self.rns_node and hasattr(self.rns_node, "announce_myself"):
-            if self.rns_node.announce_myself():
+            success = self.rns_node.announce_myself()
+            if success:
+                self.announce_status.text = "Announced successfully!"
                 print("[Mobile] Announced successfully")
             else:
+                self.announce_status.text = "Announce failed (backend issue)."
                 print("[Mobile] Announce failed")
         else:
+            self.announce_status.text = "Cannot announce - backend not ready"
             print("[Mobile] Cannot announce - backend not ready")
 
 
@@ -189,8 +200,14 @@ class ReticulumMeshApp(App):
                     rns_config_dir=str(Path.home() / ".reticulum"),
                     app_config_dir=str(Path.home() / ".config" / "reticulum-mesh-mobile")
                 )
+                if self.rns_node:
+                    try:
+                        my_hash = self.rns_node.get_identity_hash()
+                        print(f"[Mobile] This device's identity hash: {my_hash}")
+                    except:
+                        pass
             except Exception as e:
-                print(f"ReticulumNode error: {e}")
+                print(f"ReticulumNode init failed: {e}")
 
         self.content_box = Box(style=Pack(direction=COLUMN, flex=1))
         self.screen_container = Box(style=Pack(direction=COLUMN, flex=1))
