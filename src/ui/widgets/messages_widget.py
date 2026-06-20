@@ -551,18 +551,24 @@ class MessagesWidget(QWidget):
                 return
         if sender_hash not in self.conversations:
             name = sender_hash[:16]
-            if self.backend.contact_manager:
+            if self.backend and hasattr(self.backend, 'contact_manager') and self.backend.contact_manager:
                 contact = self.backend.contact_manager.get(sender_hash)
                 if contact:
                     name = contact.name
             self.add_conversation(sender_hash, name)
         ts = QDateTime.fromSecsSinceEpoch(int(timestamp)) if timestamp else QDateTime.currentDateTime()
-        bubble = ChatBubble(content, sender_hash, ts, False, 'received')
+
         if self.current_conv_id == sender_hash:
+            bubble = ChatBubble(content, sender_hash, ts, False, 'received')
             self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignLeft)
+
         conv = self.conversations.get(sender_hash)
         if conv:
             conv.update_message(content[:60], ts)
+
+        sb = self.statusBar()
+        if sb:
+            sb.showMessage(f"Message from {sender_hash[:16]}...", 3000)
 
     def statusBar(self):
         p = self.parent()

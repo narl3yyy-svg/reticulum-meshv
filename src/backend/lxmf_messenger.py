@@ -38,10 +38,31 @@ class LXMFMessenger:
 
     def _on_message(self, lxmessage: LXMF.LXMessage):
         try:
-            source_hash = lxmessage.source.hash.hex() if lxmessage.source else "unknown"
-            content = lxmessage.content.decode("utf-8", errors="replace") if lxmessage.content else ""
-            title = lxmessage.title.decode("utf-8", errors="replace") if lxmessage.title else ""
-            timestamp = getattr(lxmessage, "timestamp", time.time())
+            source_hash = ""
+            if lxmessage.source and hasattr(lxmessage.source, 'hash'):
+                source_hash = lxmessage.source.hash.hex()
+            elif hasattr(lxmessage, 'source_hash') and lxmessage.source_hash:
+                source_hash = lxmessage.source_hash.hex() if isinstance(lxmessage.source_hash, bytes) else str(lxmessage.source_hash)
+
+            content = ""
+            if lxmessage.content:
+                content = lxmessage.content.decode("utf-8", errors="replace")
+            elif hasattr(lxmessage, 'content_as_string'):
+                try:
+                    content = lxmessage.content_as_string()
+                except:
+                    pass
+
+            title = ""
+            if lxmessage.title:
+                try:
+                    title = lxmessage.title.decode("utf-8", errors="replace") if isinstance(lxmessage.title, bytes) else str(lxmessage.title)
+                except:
+                    pass
+
+            timestamp = getattr(lxmessage, "timestamp", None) or time.time()
+
+            print(f"[LXMF] Received message from {source_hash[:16]}...: {content[:50]}")
 
             msg_data = {
                 "sender": source_hash,
@@ -60,6 +81,8 @@ class LXMFMessenger:
 
         except Exception as e:
             print(f"[LXMF] Error handling message: {e}")
+            import traceback
+            traceback.print_exc()
 
     def send_message(self, destination_hash: str, text: str, title: str = "") -> bool:
         try:

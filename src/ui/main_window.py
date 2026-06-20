@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
             ("Contacts", "C", 2),
             ("Announces", "A", 3),
             ("Network", "N", 4),
-            ("Telephony", "T", 5),
+            ("Telephone", "T", 5),
             ("Interfaces", "I", 6),
             ("Settings", "S", 7),
         ]

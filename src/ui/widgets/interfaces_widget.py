@@ -187,6 +187,11 @@ class InterfacesWidget(QWidget):
         status_layout.addWidget(self.status_details)
 
         refresh_btn = QPushButton("Refresh Status")
+        refresh_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ACTION_PRIMARY}; color: white; border: none;
+                border-radius: 12px; padding: 10px 20px; font-size: 13px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACTION_PRIMARY_HOVER}; }}
+        """)
         refresh_btn.clicked.connect(self._refresh_status)
         status_layout.addWidget(refresh_btn)
 
@@ -369,11 +374,28 @@ class InterfacesWidget(QWidget):
     def _refresh_status(self):
         try:
             ifaces = []
+
+            # Try rns_node first
             if self.rns_node and self.rns_node.reticulum:
                 ifaces = self.rns_node.get_interfaces()
 
+            # Fallback: direct RNS scan
             if not ifaces:
-                self.status_details.setPlainText("No interfaces found. Check your RNS config.")
+                try:
+                    for iface in RNS.Reticulum.interfaces:
+                        name = str(getattr(iface, "name", "unknown"))
+                        ifaces.append({
+                            "name": name,
+                            "type": type(iface).__name__,
+                            "online": getattr(iface, "online", False),
+                            "bytes_in": getattr(iface, "bytes_in", 0),
+                            "bytes_out": getattr(iface, "bytes_out", 0),
+                        })
+                except:
+                    pass
+
+            if not ifaces:
+                self.status_details.setPlainText("No interfaces found.\n\nMake sure your RNS config has interfaces enabled.\nCheck the config file at ~/.reticulum/config")
                 self.status_summary.setText("No interfaces")
                 self.status_dot.set_color(MeshTheme.TEXT_DIM)
                 return
