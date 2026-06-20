@@ -20,6 +20,7 @@ class FileManagerWidget(QWidget):
         self.rns_node = getattr(backend, 'rns_node', None)
         self.lxmf_messenger = getattr(backend, 'lxmf_messenger', None)
         self.downloads_dir = getattr(backend, 'downloads_dir', Path.home() / "Downloads" / "RMESHV")
+        self._selected_path = None
         self.init_ui()
 
     def init_ui(self):
@@ -91,6 +92,30 @@ class FileManagerWidget(QWidget):
         self.selected_label = QLabel("No file selected")
         self.selected_label.setStyleSheet(f"color: {MeshTheme.TEXT_DIM}; font-size: 12px; background: transparent; padding: 4px 0;")
         send_layout.addWidget(self.selected_label)
+
+        send_btn_row = QHBoxLayout()
+
+        self.send_btn = QPushButton("Send File")
+        self.send_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {MeshTheme.ACTION_PRIMARY}; color: white; border: none;
+                border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 600; }}
+            QPushButton:hover {{ background-color: {MeshTheme.ACTION_PRIMARY_HOVER}; }}
+            QPushButton:disabled {{ background-color: {MeshTheme.SURFACE_LIGHT}; color: {MeshTheme.TEXT_DIM}; }}
+        """)
+        self.send_btn.setEnabled(False)
+        self.send_btn.clicked.connect(self._send_selected)
+        send_btn_row.addWidget(self.send_btn)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: transparent; color: {MeshTheme.TEXT_MUTED};
+                border: 1px solid {MeshTheme.BORDER}; border-radius: 12px; padding: 10px 20px; font-size: 13px; }}
+            QPushButton:hover {{ background-color: {MeshTheme.SURFACE_VARIANT}; color: {MeshTheme.TEXT}; }}
+        """)
+        cancel_btn.clicked.connect(self._cancel_selection)
+        send_btn_row.addWidget(cancel_btn)
+
+        send_layout.addLayout(send_btn_row)
 
         self.send_progress = QProgressBar()
         self.send_progress.setVisible(False)
@@ -169,7 +194,7 @@ class FileManagerWidget(QWidget):
             size = os.path.getsize(path)
             size_str = self._fmt_size(size)
             self.selected_label.setText(f"Selected: {fname} ({size_str})")
-            self._send_file(path)
+            self.send_btn.setEnabled(True)
 
     def _select_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Send")
@@ -182,7 +207,17 @@ class FileManagerWidget(QWidget):
                 size = os.path.getsize(zip_path)
                 size_str = self._fmt_size(size)
                 self.selected_label.setText(f"Selected: {fname} ({size_str})")
-                self._send_file(zip_path)
+                self.send_btn.setEnabled(True)
+
+    def _cancel_selection(self):
+        self._selected_path = None
+        self.selected_label.setText("No file selected")
+        self.send_btn.setEnabled(False)
+
+    def _send_selected(self):
+        if not hasattr(self, '_selected_path') or not self._selected_path:
+            return
+        self._send_file(self._selected_path)
 
     def _zip_folder(self, folder_path):
         try:
@@ -210,21 +245,20 @@ class FileManagerWidget(QWidget):
             return
 
         try:
-            with open(file_path, 'rb') as f:
-                file_data = f.read()
             fname = os.path.basename(file_path)
-            size = len(file_data)
+            size = os.path.getsize(file_path)
 
             from PyQt6.QtWidgets import QMessageBox
             if size > 5_000_000:
                 QMessageBox.warning(self, "Large File", f"File is {self._fmt_size(size)}. Large transfers may take a long time over RNS.")
 
-            msg_text = f"[File: {fname} ({self._fmt_size(size)})]"
-
-            if self.lxmf_messenger.send_message(dest_hash, msg_text):
-                self.selected_label.setText(f"Sent: {fname}")
-            else:
-                self.selected_label.setText("Failed to send file")
+            if self.backend and hasattr(self.backend, 'send_message'):
+                if self.backend.send_message(dest_hash, f"[File: {fname}]", file_path=file_path):
+                    self.selected_label.setText(f"Sent: {fname}")
+                    self.send_btn.setEnabled(False)
+                    self._selected_path = None
+                else:
+                    self.selected_label.setText("Failed to send file")
 
         except Exception as e:
             self.selected_label.setText(f"Error: {e}")

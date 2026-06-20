@@ -1,8 +1,9 @@
-"""LXMF-based messaging using correct LXMF library API."""
+"""LXMF-based messaging with file attachment support."""
 
 import time
 import signal
 import threading
+import base64
 from pathlib import Path
 from typing import Optional, Callable
 import RNS
@@ -10,7 +11,6 @@ import LXMF
 
 
 def create_lxmf_router(identity, storagepath, propagation_cost=0):
-    """Create LXMRouter matching MeshChatX setup."""
     if threading.current_thread() != threading.main_thread():
         original_signal = signal.signal
         try:
@@ -54,6 +54,35 @@ class LXMFMessenger:
         self.message_callback: Optional[Callable] = None
         self.conversations: dict[str, list] = {}
 
+        # Message history persistence
+        self.history_dir = self.storage_dir / "history"
+        self.history_dir.mkdir(parents=True, exist_ok=True)
+        self._load_history()
+
+    def _history_path(self, peer_hash: str) -> Path:
+        safe = peer_hash.replace("/", "_").replace("\\", "_")
+        return self.history_dir / f"{safe}.json"
+
+    def _load_history(self):
+        for f in self.history_dir.glob("*.json"):
+            try:
+                peer_hash = f.stem
+                data = f.read_text()
+                import json
+                msgs = json.loads(data)
+                if isinstance(msgs, list):
+                    self.conversations[peer_hash] = msgs
+            except:
+                pass
+
+    def _save_history(self, peer_hash: str):
+        try:
+            import json
+            msgs = self.conversations.get(peer_hash, [])
+            self._history_path(peer_hash).write_text(json.dumps(msgs, indent=2))
+        except:
+            pass
+
     def set_display_name(self, name: str):
         self.display_name = name
         try:
@@ -88,6 +117,25 @@ class LXMFMessenger:
 
             timestamp = getattr(lxmessage, "timestamp", None) or time.time()
 
+            # Check for file attachments
+            file_attachments = []
+            try:
+                fields = lxmessage.get_fields()
+                if LXMF.FIELD_FILE_ATTACHMENTS in fields:
+                    for att in fields[LXMF.FIELD_FILE_ATTACHMENTS]:
+                        if isinstance(att, (list, tuple)) and len(att) >= 2:
+                            fname = att[0]
+                            fdata = att[1]
+                            if isinstance(fdata, (bytes, bytearray)):
+                                file_attachments.append({
+                                    "name": fname if isinstance(fname, str) else fname.decode("utf-8", errors="replace"),
+                                    "size": len(fdata),
+                                    "data": bytes(fdata),
+                                })
+                                print(f"[LXMF] File attachment: {fname} ({len(fdata)} bytes)")
+            except:
+                pass
+
             print(f"[LXMF] Received message from {source_hash[:16]}...: {content[:50]}")
 
             msg_data = {
@@ -96,11 +144,24 @@ class LXMFMessenger:
                 "title": title,
                 "timestamp": timestamp,
                 "is_outgoing": False,
+                "file_attachments": [{"name": a["name"], "size": a["size"]} for a in file_attachments],
             }
 
             if source_hash not in self.conversations:
                 self.conversations[source_hash] = []
             self.conversations[source_hash].append(msg_data)
+            self._save_history(source_hash)
+
+            # Save received files to downloads
+            if file_attachments:
+                import os
+                for att in file_attachments:
+                    downloads = Path.home() / "Downloads" / "RMESHV"
+                    downloads.mkdir(parents=True, exist_ok=True)
+                    fpath = downloads / att["name"]
+                    with open(fpath, "wb") as f:
+                        f.write(att["data"])
+                    print(f"[LXMF] Saved file: {fpath}")
 
             if self.message_callback:
                 self.message_callback(source_hash, content, title, timestamp)
@@ -110,7 +171,7 @@ class LXMFMessenger:
             import traceback
             traceback.print_exc()
 
-    def send_message(self, destination_hash: str, text: str, title: str = "") -> bool:
+    def send_message(self, destination_hash: str, text: str, title: str = "", file_path: str = None) -> bool:
         try:
             dest_bytes = bytes.fromhex(destination_hash)
             remote_identity = RNS.Identity.recall(dest_bytes)
@@ -126,11 +187,24 @@ class LXMFMessenger:
                 "delivery"
             )
 
+            # Build fields with file attachment if provided
+            fields = {}
+            if file_path:
+                import os
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                fname = os.path.basename(file_path)
+                fields[LXMF.FIELD_FILE_ATTACHMENTS] = [(fname, file_data)]
+                if not text:
+                    text = f"[File: {fname}]"
+                print(f"[LXMF] Attaching file: {fname} ({len(file_data)} bytes)")
+
             message = LXMF.LXMessage(
                 dest,
                 self.delivery_dest,
                 content=text.encode("utf-8") if isinstance(text, str) else text,
                 title=title.encode("utf-8") if title else b"",
+                fields=fields if fields else None,
             )
 
             self.router.handle_outbound(message)
@@ -139,13 +213,18 @@ class LXMFMessenger:
             conv_id = destination_hash
             if conv_id not in self.conversations:
                 self.conversations[conv_id] = []
-            self.conversations[conv_id].append({
+            msg_entry = {
                 "sender": self.identity.hash.hex(),
                 "content": text,
                 "title": title,
                 "timestamp": time.time(),
                 "is_outgoing": True,
-            })
+            }
+            if file_path:
+                import os
+                msg_entry["file_attachments"] = [{"name": os.path.basename(file_path), "size": os.path.getsize(file_path)}]
+            self.conversations[conv_id].append(msg_entry)
+            self._save_history(conv_id)
             return True
 
         except Exception as e:

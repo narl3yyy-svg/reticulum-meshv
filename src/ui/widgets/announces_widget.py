@@ -12,31 +12,44 @@ import json
 
 
 def _decode_app_data(app_data):
-    """Decode app_data from announce, handling JSON, binary, and plain text."""
+    """Decode app_data from announce, handling msgpack (LXMF format) and plain text."""
     if not app_data:
         return ""
     if isinstance(app_data, bytes):
+        # Try msgpack first (LXMF router packs [display_name, stamp_cost, features])
+        try:
+            import msgpack
+            unpacked = msgpack.unpackb(app_data, raw=False)
+            if isinstance(unpacked, (list, tuple)) and len(unpacked) >= 1:
+                name = unpacked[0]
+                if isinstance(name, bytes):
+                    return name.decode("utf-8", errors="replace")
+                if isinstance(name, str):
+                    return name
+        except:
+            pass
+
+        # Try plain UTF-8
         try:
             text = app_data.decode("utf-8", errors="replace")
+            # Check if it looks like text (not binary garbage)
+            printable = sum(1 for c in text if c.isprintable() or c in (' ', '\t', '\n'))
+            if printable > len(text) * 0.7:
+                # Try JSON
+                try:
+                    import json
+                    data = json.loads(text)
+                    if isinstance(data, dict):
+                        return data.get("display_name", data.get("name", text))
+                except:
+                    pass
+                return text.strip()
         except:
-            return app_data.hex()[:16]
+            pass
+
+        return app_data.hex()[:16]
     else:
-        text = str(app_data)
-
-    # MeshChatX sends JSON with display_name field
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data.get("display_name", data.get("name", text))
-    except:
-        pass
-
-    # Strip non-printable characters
-    cleaned = ""
-    for ch in text:
-        if ch.isprintable() or ch in (' ', '\t', '\n'):
-            cleaned += ch
-    return cleaned.strip() if cleaned.strip() else text[:16]
+        return str(app_data)
 
 
 class AnnounceCard(QFrame):

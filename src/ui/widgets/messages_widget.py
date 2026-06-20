@@ -210,7 +210,9 @@ class MessagesWidget(QWidget):
 
         self.conversations = {}
         self.current_conv_id = None
+        self._pending_file = None
         self._populate_conversations()
+        self._load_history()
 
     def _build_conversation_panel(self):
         panel = QFrame()
@@ -319,6 +321,25 @@ class MessagesWidget(QWidget):
         scroll.setWidget(self.messages_container)
         chat_clayout.addWidget(scroll, 1)
 
+        # File preview bar (shown when a file is attached)
+        self._file_preview_frame = QFrame()
+        self._file_preview_frame.setStyleSheet(f"background-color: {MeshTheme.SURFACE_VARIANT}; border-top: 1px solid {MeshTheme.BORDER};")
+        self._file_preview_frame.setVisible(False)
+        fp_layout = QHBoxLayout(self._file_preview_frame)
+        fp_layout.setContentsMargins(16, 6, 16, 6)
+        self._file_preview_label = QLabel("")
+        self._file_preview_label.setStyleSheet(f"color: {MeshTheme.TEXT}; font-size: 12px; background: transparent;")
+        fp_layout.addWidget(self._file_preview_label, 1)
+        cancel_file_btn = QPushButton("x")
+        cancel_file_btn.setFixedSize(24, 24)
+        cancel_file_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {MeshTheme.TEXT_MUTED}; border: none; font-size: 14px; font-weight: 700; }}
+            QPushButton:hover {{ color: {MeshTheme.ERROR}; }}
+        """)
+        cancel_file_btn.clicked.connect(self._cancel_file_attach)
+        fp_layout.addWidget(cancel_file_btn)
+        chat_clayout.addWidget(self._file_preview_frame)
+
         input_frame = QFrame()
         input_frame.setStyleSheet(f"background-color: {MeshTheme.SURFACE}; border-top: 1px solid {MeshTheme.BORDER};")
         inp_layout = QHBoxLayout(input_frame)
@@ -385,6 +406,28 @@ class MessagesWidget(QWidget):
             name = contact.name or conv_id[:8]
             self.add_conversation(conv_id, name)
 
+    def _load_history(self):
+        """Load saved conversations from LXMF messenger history."""
+        if not self.backend or not hasattr(self.backend, 'lxmf_messenger'):
+            return
+        lxmf = self.backend.lxmf_messenger
+        if not lxmf:
+            return
+        for peer_hash, messages in lxmf.get_conversations().items():
+            if peer_hash not in self.conversations and messages:
+                name = peer_hash[:16]
+                if self.backend.contact_manager:
+                    contact = self.backend.contact_manager.get(peer_hash)
+                    if contact:
+                        name = contact.name
+                self.add_conversation(peer_hash, name)
+                last_msg = messages[-1]
+                conv = self.conversations.get(peer_hash)
+                if conv:
+                    content = last_msg.get("content", "")
+                    ts = QDateTime.fromSecsSinceEpoch(int(last_msg.get("timestamp", 0)))
+                    conv.update_message(content[:60], ts)
+
     def add_conversation(self, conv_id, display_name):
         if conv_id in self.conversations:
             return
@@ -415,19 +458,50 @@ class MessagesWidget(QWidget):
             if w and w is not self.messages_layout.itemAt(self.messages_layout.count() - 1).widget():
                 w.deleteLater()
 
+        # Load saved message history
+        if self.backend and hasattr(self.backend, 'lxmf_messenger') and self.backend.lxmf_messenger:
+            messages = self.backend.lxmf_messenger.get_conversation(conv_id)
+            for msg in messages:
+                is_outgoing = msg.get("is_outgoing", False)
+                content = msg.get("content", "")
+                ts = QDateTime.fromSecsSinceEpoch(int(msg.get("timestamp", 0)))
+                if is_outgoing:
+                    bubble = ChatBubble(content, "me", ts, True, 'sent')
+                    self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignRight)
+                else:
+                    sender = msg.get("sender", conv_id)
+                    bubble = ChatBubble(content, sender, ts, False, 'received')
+                    self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignLeft)
+
     def _send_message(self):
         text = self.message_input.toPlainText().strip()
-        if not text or not self.current_conv_id:
+        if not text and not self._pending_file:
+            return
+        if not self.current_conv_id:
             return
         ts = QDateTime.currentDateTime()
-        bubble = ChatBubble(text, "me", ts, True, 'sent')
-        self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignRight)
+
+        if self._pending_file:
+            import os
+            fname = os.path.basename(self._pending_file)
+            size = os.path.getsize(self._pending_file)
+            size_str = self._fmt_file_size(size)
+            self._add_file_bubble(fname, size_str, self._pending_file)
+            if self.backend and hasattr(self.backend, 'send_message'):
+                self.backend.send_message(self.current_conv_id, text or f"[File: {fname}]", file_path=self._pending_file)
+            self._pending_file = None
+            self._file_preview_label.setText("")
+            self._file_preview_frame.setVisible(False)
+        else:
+            bubble = ChatBubble(text, "me", ts, True, 'sent')
+            self.messages_layout.insertWidget(self.messages_layout.count() - 1, bubble, 0, Qt.AlignmentFlag.AlignRight)
+            if self.backend and hasattr(self.backend, 'send_message'):
+                self.backend.send_message(self.current_conv_id, text)
+
         self.message_input.clear()
         conv = self.conversations.get(self.current_conv_id)
         if conv:
-            conv.update_message(text, ts)
-        if self.backend and hasattr(self.backend, 'send_message'):
-            self.backend.send_message(self.current_conv_id, text)
+            conv.update_message(text[:60] if text else "[File]", ts)
 
     def _filter_conversations(self, text):
         for conv_id, item in self.conversations.items():
@@ -462,12 +536,14 @@ class MessagesWidget(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Attach File")
         if path:
             import os
+            self._pending_file = path
             fname = os.path.basename(path)
             size = os.path.getsize(path)
-            size_str = self._format_file_size(size)
-            self._add_file_bubble(fname, size_str, path)
+            size_str = self._fmt_file_size(size)
+            self._file_preview_label.setText(f"Attached: {fname} ({size_str})")
+            self._file_preview_frame.setVisible(True)
 
-    def _format_file_size(self, size):
+    def _fmt_file_size(self, size):
         if size < 1024:
             return f"{size} B"
         elif size < 1024 * 1024:
@@ -476,6 +552,11 @@ class MessagesWidget(QWidget):
             return f"{size / (1024 * 1024):.1f} MB"
         else:
             return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+    def _cancel_file_attach(self):
+        self._pending_file = None
+        self._file_preview_label.setText("")
+        self._file_preview_frame.setVisible(False)
 
     def _add_file_bubble(self, fname, size_str, path=""):
         bubble = QFrame()

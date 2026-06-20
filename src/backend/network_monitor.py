@@ -89,9 +89,30 @@ class NetworkMonitor:
         if not announced_identity:
             return
         hash_hex = destination_hash.hex() if hasattr(destination_hash, 'hex') else str(destination_hash)
-        app_data_str = app_data.decode("utf-8", errors="replace") if isinstance(app_data, bytes) else (
-            str(app_data) if app_data else ""
-        )
+
+        # Decode app_data - LXMF uses msgpack [display_name, stamp_cost, features]
+        app_data_str = ""
+        if app_data:
+            if isinstance(app_data, bytes):
+                try:
+                    import msgpack
+                    unpacked = msgpack.unpackb(app_data, raw=False)
+                    if isinstance(unpacked, (list, tuple)) and len(unpacked) >= 1:
+                        name = unpacked[0]
+                        if isinstance(name, bytes):
+                            app_data_str = name.decode("utf-8", errors="replace")
+                        elif isinstance(name, str):
+                            app_data_str = name
+                    else:
+                        app_data_str = str(unpacked)
+                except:
+                    try:
+                        app_data_str = app_data.decode("utf-8", errors="replace")
+                    except:
+                        app_data_str = app_data.hex()[:16]
+            else:
+                app_data_str = str(app_data)
+
         with self._lock:
             self.peers[hash_hex] = {
                 "hash": hash_hex,

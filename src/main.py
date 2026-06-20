@@ -193,9 +193,9 @@ class Application:
             except Exception as e:
                 print(f"[LXMF] UI delivery error: {e}")
 
-    def send_message(self, dest_hash: str, text: str):
+    def send_message(self, dest_hash: str, text: str, file_path: str = None):
         if self.lxmf_messenger:
-            return self.lxmf_messenger.send_message(dest_hash, text)
+            return self.lxmf_messenger.send_message(dest_hash, text, file_path=file_path)
         return False
 
     def run(self):
