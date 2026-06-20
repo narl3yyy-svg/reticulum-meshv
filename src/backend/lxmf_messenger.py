@@ -174,7 +174,12 @@ class LXMFMessenger:
     def send_message(self, destination_hash: str, text: str, title: str = "", file_path: str = None) -> bool:
         try:
             dest_bytes = bytes.fromhex(destination_hash)
+
+            # Try to recall the remote identity
             remote_identity = RNS.Identity.recall(dest_bytes)
+            if not remote_identity:
+                # Try recalling from identity hash
+                remote_identity = RNS.Identity.recall(dest_bytes, from_identity_hash=True)
             if not remote_identity:
                 remote_identity = RNS.Identity()
                 remote_identity.hash = dest_bytes
@@ -186,6 +191,11 @@ class LXMFMessenger:
                 "lxmf",
                 "delivery"
             )
+
+            # Request path if not known
+            if not RNS.Transport.has_path(dest.hash):
+                print(f"[LXMF] Requesting path to {destination_hash[:16]}...")
+                RNS.Transport.request_path(dest.hash)
 
             # Build fields with file attachment if provided
             fields = {}
@@ -207,12 +217,13 @@ class LXMFMessenger:
                 fields=fields if fields else None,
             )
 
-            # Set delivery method to direct (link-based) for reliability
+            # Use DIRECT method for reliable delivery (link-based)
             message.desired_method = LXMF.LXMessage.DIRECT
 
             self.router.handle_outbound(message)
             print(f"[LXMF] Sent message to {destination_hash[:16]}...: {text[:50]} (method={message.desired_method})")
             if file_path:
+                import os
                 print(f"[LXMF] File attached: {os.path.basename(file_path)} ({os.path.getsize(file_path)} bytes)")
 
             conv_id = destination_hash
