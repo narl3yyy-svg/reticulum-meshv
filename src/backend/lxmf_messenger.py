@@ -1,10 +1,33 @@
 """LXMF-based messaging using correct LXMF library API."""
 
 import time
+import signal
+import threading
 from pathlib import Path
 from typing import Optional, Callable
 import RNS
 import LXMF
+
+
+def create_lxmf_router(identity, storagepath, propagation_cost=0):
+    """Create LXMRouter matching MeshChatX setup."""
+    if threading.current_thread() != threading.main_thread():
+        original_signal = signal.signal
+        try:
+            signal.signal = lambda s, h: None
+            return LXMF.LXMRouter(
+                identity=identity,
+                storagepath=storagepath,
+                propagation_cost=propagation_cost,
+            )
+        finally:
+            signal.signal = original_signal
+    else:
+        return LXMF.LXMRouter(
+            identity=identity,
+            storagepath=storagepath,
+            propagation_cost=propagation_cost,
+        )
 
 
 class LXMFMessenger:
@@ -14,9 +37,9 @@ class LXMFMessenger:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.display_name = display_name
 
-        self.router = LXMF.LXMRouter(
+        self.router = create_lxmf_router(
             identity=identity,
-            storagepath=str(self.storage_dir)
+            storagepath=str(self.storage_dir),
         )
 
         self.delivery_dest = self.router.register_delivery_identity(
@@ -24,6 +47,9 @@ class LXMFMessenger:
         )
         self.delivery_dest.set_proof_strategy(RNS.Destination.PROVE_ALL)
         self.router.register_delivery_callback(self._on_message)
+
+        print(f"[LXMF] Delivery destination hash: {self.delivery_dest.hash.hex()}")
+        print(f"[LXMF] Identity hash: {identity.hash.hex()}")
 
         self.message_callback: Optional[Callable] = None
         self.conversations: dict[str, list] = {}
@@ -108,6 +134,7 @@ class LXMFMessenger:
             )
 
             self.router.handle_outbound(message)
+            print(f"[LXMF] Sent message to {destination_hash[:16]}...: {text[:50]}")
 
             conv_id = destination_hash
             if conv_id not in self.conversations:
@@ -134,6 +161,11 @@ class LXMFMessenger:
     def set_message_callback(self, callback: Callable):
         self.message_callback = callback
 
+    def get_delivery_hash(self) -> str:
+        if self.delivery_dest:
+            return self.delivery_dest.hash.hex()
+        return ""
+
     def announce(self, app_data: str = "") -> bool:
         try:
             name = app_data if app_data else self.display_name
@@ -141,7 +173,7 @@ class LXMFMessenger:
                 self.delivery_dest.display_name = name
             if self.router:
                 self.router.announce(destination_hash=self.delivery_dest.hash)
-                print(f"[LXMF] Announced as: {name}")
+                print(f"[LXMF] Announced as: {name} (hash: {self.delivery_dest.hash.hex()[:16]}...)")
                 return True
         except Exception as e:
             print(f"[LXMF] Announce error: {e}")

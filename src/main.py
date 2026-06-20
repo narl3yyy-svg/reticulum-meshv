@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
+import RNS
 
 from src.backend.rns_node import ReticulumNode
 from src.backend.lxmf_messenger import LXMFMessenger
@@ -123,6 +124,13 @@ class Application:
     def _init_backend(self):
         try:
             self._ensure_rns_config()
+
+            # Enable RNS logging for debugging
+            try:
+                RNS.Reticulum.set_log_level(RNS.LOG_NOTICE)
+            except:
+                pass
+
             self.rns_node = ReticulumNode(
                 rns_config_dir=str(self.rns_config_dir),
                 app_config_dir=str(self.app_config_dir)
@@ -147,6 +155,23 @@ class Application:
                     identity
                 )
                 self.network_monitor.start()
+
+                # Debug: register a catch-all announce handler
+                try:
+                    class DebugAnnounceHandler:
+                        aspect_filter = None
+                        def received_announce(self, destination_hash, announced_identity, app_data, announce_packet_hash=None):
+                            h = destination_hash.hex() if hasattr(destination_hash, 'hex') else str(destination_hash)
+                            data_str = ""
+                            if app_data:
+                                if isinstance(app_data, bytes):
+                                    data_str = app_data.decode("utf-8", errors="replace")[:50]
+                                else:
+                                    data_str = str(app_data)[:50]
+                            print(f"[RNS] Announce received: dest={h[:16]}... data={data_str}")
+                    RNS.Transport.register_announce_handler(DebugAnnounceHandler())
+                except:
+                    pass
 
         except Exception as e:
             print(f"Backend initialization error: {e}")
