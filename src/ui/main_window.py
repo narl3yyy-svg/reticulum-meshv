@@ -286,14 +286,14 @@ class MainWindow(QMainWindow):
         from src.ui.widgets.announces_widget import AnnouncesWidget
         from src.ui.widgets.interfaces_widget import InterfacesWidget
         from src.ui.widgets.network_widget import NetworkWidget
-        from src.ui.widgets.telephony_widget import TelephonyWidget
+        from src.ui.widgets.telephony_widget import TelephoneWidget
 
         self.messages_widget = MessagesWidget(backend)
         self.file_widget = FileManagerWidget(backend)
         self.contacts_widget = ContactsWidget(backend)
         self.announces_widget = AnnouncesWidget(backend)
         self.network_widget = NetworkWidget(backend)
-        self.telephony_widget = TelephonyWidget(backend)
+        self.telephone_widget = TelephoneWidget(backend)
         self.interfaces_widget = InterfacesWidget(backend)
         self.settings_widget = SettingsWidget(backend)
 
@@ -302,6 +302,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.contacts_widget)
         self.stack.addWidget(self.announces_widget)
         self.stack.addWidget(self.network_widget)
-        self.stack.addWidget(self.telephony_widget)
+        self.stack.addWidget(self.telephone_widget)
         self.stack.addWidget(self.interfaces_widget)
         self.stack.addWidget(self.settings_widget)
