@@ -184,9 +184,12 @@ class ConversationListItem(QFrame):
 
 
 class MessagesWidget(QWidget):
+    message_received = pyqtSignal(str, str, str, float)
+
     def __init__(self, backend):
         super().__init__()
         self.backend = backend
+        self.message_received.connect(self._handle_received_message)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -546,6 +549,9 @@ class MessagesWidget(QWidget):
             conv.update_message(text, ts)
 
     def receive_lxmf_message(self, sender_hash: str, content: str, title: str, timestamp: float):
+        self.message_received.emit(sender_hash, content, title, timestamp)
+
+    def _handle_received_message(self, sender_hash: str, content: str, title: str, timestamp: float):
         if self.backend and hasattr(self.backend, 'is_sender_allowed'):
             if not self.backend.is_sender_allowed(sender_hash):
                 return
