@@ -134,8 +134,8 @@ class NetworkWidget(QWidget):
         # Also try direct RNS interface scan
         if not interfaces:
             try:
-                for iface in RNS.Reticulum.interfaces:
-                    name = str(getattr(iface, "name", "unknown"))
+                for iface in RNS.Transport.interfaces:
+                    name = str(getattr(iface, "name", str(iface)))
                     interfaces[name] = {
                         "type": type(iface).__name__,
                         "online": getattr(iface, "online", False),

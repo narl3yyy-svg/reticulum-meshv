@@ -140,7 +140,8 @@ class MainWindow(QMainWindow):
             ("Network", "N", 4),
             ("Telephone", "T", 5),
             ("Interfaces", "I", 6),
-            ("Settings", "S", 7),
+            ("Identity", "ID", 7),
+            ("Settings", "S", 8),
         ]
 
         for text, icon, idx in self.nav_items:
@@ -287,6 +288,7 @@ class MainWindow(QMainWindow):
         from src.ui.widgets.interfaces_widget import InterfacesWidget
         from src.ui.widgets.network_widget import NetworkWidget
         from src.ui.widgets.telephony_widget import TelephoneWidget
+        from src.ui.widgets.identity_widget import IdentityWidget
 
         self.messages_widget = MessagesWidget(backend)
         self.file_widget = FileManagerWidget(backend)
@@ -295,6 +297,7 @@ class MainWindow(QMainWindow):
         self.network_widget = NetworkWidget(backend)
         self.telephone_widget = TelephoneWidget(backend)
         self.interfaces_widget = InterfacesWidget(backend)
+        self.identity_widget = IdentityWidget(backend)
         self.settings_widget = SettingsWidget(backend)
 
         self.stack.addWidget(self.messages_widget)
@@ -304,4 +307,5 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.network_widget)
         self.stack.addWidget(self.telephone_widget)
         self.stack.addWidget(self.interfaces_widget)
+        self.stack.addWidget(self.identity_widget)
         self.stack.addWidget(self.settings_widget)

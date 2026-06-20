@@ -63,8 +63,8 @@ class NetworkMonitor:
         with self._lock:
             self.interfaces.clear()
             try:
-                for iface in RNS.Reticulum.interfaces:
-                    name = str(getattr(iface, "name", "unknown"))
+                for iface in RNS.Transport.interfaces:
+                    name = str(getattr(iface, "name", str(iface)))
                     self.interfaces[name] = {
                         "type": type(iface).__name__,
                         "online": getattr(iface, "online", False),
@@ -78,10 +78,25 @@ class NetworkMonitor:
         with self._lock:
             self.paths.clear()
             try:
+                # Scan known paths from path table
+                for dest_hash in RNS.Transport.path_table:
+                    hops = RNS.Transport.hops_to(dest_hash)
+                    if hops is not None:
+                        if hasattr(dest_hash, 'hex'):
+                            self.paths[dest_hash.hex()] = hops
+                        elif isinstance(dest_hash, bytes):
+                            self.paths[dest_hash.hex()] = hops
+            except:
+                pass
+            try:
+                # Also scan local destinations
                 for dest_hash in RNS.Transport.destinations:
                     hops = RNS.Transport.hops_to(dest_hash)
                     if hops is not None:
-                        self.paths[dest_hash.hex()] = hops
+                        if hasattr(dest_hash, 'hex'):
+                            self.paths[dest_hash.hex()] = hops
+                        elif isinstance(dest_hash, bytes):
+                            self.paths[dest_hash.hex()] = hops
             except:
                 pass
 

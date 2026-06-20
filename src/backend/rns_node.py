@@ -71,8 +71,8 @@ class ReticulumNode:
     def get_interfaces(self):
         ifaces = []
         try:
-            for iface in RNS.Reticulum.interfaces:
-                name = str(getattr(iface, "name", "unknown"))
+            for iface in RNS.Transport.interfaces:
+                name = str(getattr(iface, "name", str(iface)))
                 ifaces.append({
                     "name": name,
                     "type": type(iface).__name__,

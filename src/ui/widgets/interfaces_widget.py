@@ -382,8 +382,8 @@ class InterfacesWidget(QWidget):
             # Fallback: direct RNS scan
             if not ifaces:
                 try:
-                    for iface in RNS.Reticulum.interfaces:
-                        name = str(getattr(iface, "name", "unknown"))
+                    for iface in RNS.Transport.interfaces:
+                        name = str(getattr(iface, "name", str(iface)))
                         ifaces.append({
                             "name": name,
                             "type": type(iface).__name__,

@@ -207,8 +207,13 @@ class LXMFMessenger:
                 fields=fields if fields else None,
             )
 
+            # Set delivery method to direct (link-based) for reliability
+            message.desired_method = LXMF.LXMessage.DIRECT
+
             self.router.handle_outbound(message)
-            print(f"[LXMF] Sent message to {destination_hash[:16]}...: {text[:50]}")
+            print(f"[LXMF] Sent message to {destination_hash[:16]}...: {text[:50]} (method={message.desired_method})")
+            if file_path:
+                print(f"[LXMF] File attached: {os.path.basename(file_path)} ({os.path.getsize(file_path)} bytes)")
 
             conv_id = destination_hash
             if conv_id not in self.conversations:
